@@ -150,7 +150,16 @@ async function engineDefaults() {
   if (s.api !== false) wanted.api = false;
   if (s.ssdp !== false) wanted.ssdp = false;                        // pas d'annonce sur le réseau : Jellyfin est déclaré directement
   if (s.ThreadfinAutoUpdate !== false) wanted.ThreadfinAutoUpdate = false;  // la version vient de l'image
-  if (s.buffer !== '-') wanted.buffer = '-';                        // le flux va du fournisseur au client, sans passer par ici
+  // Le moteur relaie le flux au lieu de renvoyer le client chez le fournisseur : le lecteur
+  // HDHomeRun de Jellyfin ne suit pas la redirection et n'obtient alors aucune donnée
+  // (« Zero bytes copied from stream »). Relayer permet aussi de compter les connexions ouvertes.
+  // Rien n'est ouvert chez le fournisseur tant que personne ne regarde.
+  if (s.buffer !== 'threadfin') wanted.buffer = 'threadfin';
+  if (Number(s['buffer.size.kb']) !== 1024) wanted['buffer.size.kb'] = 1024;
+  if (Number(s['buffer.timeout']) !== 500) wanted['buffer.timeout'] = 500;
+  // Beaucoup de fournisseurs ne répondent qu'aux lecteurs qu'ils connaissent et laissent les autres
+  // attendre sans rien envoyer.
+  if (!s['user.agent']) wanted['user.agent'] = 'VLC/3.0.20 LibVLC/3.0.20';
   if (!Array.isArray(s.update) || !s.update.length) wanted.update = ['0300'];
   // Adresse annoncée dans les liens (chaînes, logos) : le nom du conteneur, que Jellyfin sait joindre.
   const domain = 'dt-' + APP_ID;

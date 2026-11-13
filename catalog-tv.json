@@ -12,7 +12,7 @@
     "es": "Añade la televisión en directo a tu servidor Jellyfin sin configurar nada a mano.\n\nEl asistente te pide la dirección de la lista de canales de tu proveedor, comprueba tu suscripción y su fecha de fin, te deja marcar los grupos de canales que quieres conservar, instala una guía de programación francesa gratuita, la asocia automáticamente a tus canales y después declara el sintonizador y la guía en Jellyfin y lanza la actualización. Una página de comprobación revisa toda la cadena e indica qué falla.\n\nTus canales aparecen en Jellyfin en todas tus pantallas, y en TIVImu en el televisor: zapeo, guía en cuadrícula, favoritos y elección del flujo (4K, FHD, HD, SD).\n\nNo se abre nada en tu red: el motor permanece privado en el NAS. La contraseña de Jellyfin no se guarda.\n\nMotor Threadfin (MIT), compilado desde su código fuente, sin modificar. Desktroo no está afiliado al proyecto Threadfin ni cuenta con su respaldo."
   },
   "category": "media",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "min_desktroo": "3.1.0",
   "image": "ghcr.io/nabief/desktroo-tv",
   "digest": "",

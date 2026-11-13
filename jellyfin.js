@@ -28,9 +28,14 @@ function request(base, path, opts) {
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
         if (res.statusCode >= 400) {
+          // Nommer la requête : sans cela, une erreur de l'API ne dit pas à quelle étape elle s'est produite.
+          const where = (o.method || 'GET') + ' ' + path.replace(/^\//, '').split('?')[0];
           const msg = res.statusCode === 401 ? 'Identifiants refusés par Jellyfin.'
             : res.statusCode === 403 ? "Ce compte Jellyfin n'est pas administrateur."
-              : 'Jellyfin répond « ' + res.statusCode + ' »' + (text ? ' : ' + text.slice(0, 200) : '') + '.';
+              : res.statusCode === 405 ? 'Jellyfin refuse la requête « ' + where + " » (405) : cette version de son "
+                + 'interface de programmation ne la connaît pas sous cette forme.'
+                : 'Jellyfin répond « ' + res.statusCode + ' » à « ' + where + ' »' +
+                  (text ? ' : ' + text.slice(0, 200) : '') + '.';
           const e = new Error(msg);
           e.status = res.statusCode;
           return reject(e);

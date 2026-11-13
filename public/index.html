@@ -40,8 +40,6 @@
   .tv-wait { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.25);
     border-top-color: var(--accent2); border-radius: 50%; animation: tvspin .8s linear infinite; vertical-align: -2px; }
   @keyframes tvspin { to { transform: rotate(360deg); } }
-  .tv-engine { width: 100%; height: calc(100vh - 160px); min-height: 420px; border: 1px solid var(--glass-border);
-    border-radius: var(--radius-sm); background: #11151c; }
   .tv-note { margin-top: 18px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
   .tv-warn { margin-top: 14px; padding: 12px 14px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.6;
     border: 1px solid var(--warning, #c08a2e); background: color-mix(in srgb, var(--warning, #c08a2e) 10%, transparent); }
@@ -356,11 +354,20 @@ function stepCheck() {
 }
 
 function stepEngine() {
+  // L'interface du moteur est conçue pour une fenêtre entière : à l'étroit dans un cadre, elle est
+  // illisible. On l'ouvre donc à côté, en passant par Desktroo, qui lui ouvre l'accès.
   return `
-  <div class="tv-step" style="max-width:none">
+  <div class="tv-step">
     <p class="tv-lead">Réglages fins du moteur Threadfin : filtres, association chaîne par chaîne, journal.
-      L'assistant suffit dans la plupart des cas.</p>
-    <iframe class="tv-engine" src="engine/web/" title="Moteur TV"></iframe>
+      L'assistant suffit dans la plupart des cas — n'y touchez que si vous savez ce que vous cherchez.</p>
+    <div class="tv-row">
+      <a class="dk-btn primary" href="engine/web/" target="_blank" rel="noopener">Ouvrir les réglages du moteur</a>
+      <button class="dk-btn" id="log" data-label="Voir le journal">Voir le journal</button>
+    </div>
+    <p class="tv-note">S'ouvre dans un autre onglet, en pleine largeur. Le moteur n'est pas accessible depuis
+      votre réseau : il ne répond qu'à travers Desktroo, à vous seul.</p>
+    <pre class="tv-log" id="logbox" hidden></pre>
+    <div class="tv-msg" id="m"></div>
   </div>`;
 }
 
@@ -583,20 +590,28 @@ function wire() {
       busy(go, false);
     };
     go.onclick = run;
-    var logBtn = document.getElementById('log');
-    logBtn.dataset.label = logBtn.textContent;
-    logBtn.onclick = async function () {
-      var box = document.getElementById('logbox');
-      busy(logBtn, true, 'Lecture…');
-      try {
-        var r = await api('api/log');
-        box.textContent = (r.log || []).join('\n') || 'Journal vide.';
-        box.hidden = false;
-      } catch (e) { say('m', esc(e.message), 'err'); }
-      busy(logBtn, false);
-    };
+    bindLog();
     run();
   }
+
+  if (step === 'engine') bindLog();
+}
+
+/** Le journal du moteur, lisible depuis la vérification comme depuis les réglages avancés. */
+function bindLog() {
+  var logBtn = document.getElementById('log');
+  if (!logBtn) return;
+  logBtn.dataset.label = logBtn.textContent;
+  logBtn.onclick = async function () {
+    var box = document.getElementById('logbox');
+    busy(logBtn, true, 'Lecture…');
+    try {
+      var r = await api('api/log');
+      box.textContent = (r.log || []).join('\n') || 'Journal vide.';
+      box.hidden = false;
+    } catch (e) { say('m', esc(e.message), 'err'); }
+    busy(logBtn, false);
+  };
 }
 
 function show(id) {

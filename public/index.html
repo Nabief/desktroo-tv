@@ -1,0 +1,375 @@
+<!doctype html>
+<!-- Desktroo TV — © 2026 Mdm-services.fr. Tous droits réservés. Moteur : Threadfin (MIT), servi sans modification. -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desktroo TV</title>
+<link rel="stylesheet" href="/a/_sdk/desktroo-app.css">
+<script src="/a/_sdk/desktroo-app.js"></script>
+<style>
+  .tv-step { max-width: 720px; }
+  .tv-step h2 { margin-bottom: 6px; }
+  .tv-lead { color: var(--text-dim); font-size: 13px; margin: 0 0 16px; line-height: 1.5; }
+  .tv-field { margin: 14px 0; }
+  .tv-field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 5px; }
+  .tv-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+  .tv-msg { margin-top: 12px; font-size: 13px; line-height: 1.5; }
+  .tv-msg.err { color: var(--danger); }
+  .tv-msg.ok { color: var(--accent2); }
+  .tv-sub { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; font-size: 13px; }
+  .tv-sub b { font-weight: 600; }
+  .tv-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 14px; margin-top: 10px;
+    max-height: 320px; overflow: auto; padding-right: 4px; }
+  .tv-groups label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 0; cursor: pointer; }
+  .tv-groups .n { color: var(--text-dim); font-size: 11.5px; }
+  .tv-checks { list-style: none; margin: 10px 0 0; padding: 0; }
+  .tv-checks li { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--glass-border); font-size: 13px; }
+  .tv-checks li:last-child { border-bottom: 0; }
+  .tv-checks .ic { width: 18px; flex-shrink: 0; }
+  .tv-checks .d { color: var(--text-dim); font-size: 12px; }
+  .tv-wait { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.25);
+    border-top-color: var(--accent2); border-radius: 50%; animation: tvspin .8s linear infinite; vertical-align: -2px; }
+  @keyframes tvspin { to { transform: rotate(360deg); } }
+  .tv-engine { width: 100%; height: calc(100vh - 160px); min-height: 420px; border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm); background: #11151c; }
+  .tv-note { margin-top: 18px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .tv-done { font-size: 15px; }
+</style>
+</head>
+<body>
+<div class="dk-shell">
+  <nav class="dk-side" id="nav">
+    <div class="dk-side-title">Installation</div>
+    <button class="dk-nav active" data-step="1"><span class="dk-nav-ic">①</span><span class="dk-nav-name">Abonnement</span></button>
+    <button class="dk-nav" data-step="2"><span class="dk-nav-ic">②</span><span class="dk-nav-name">Chaînes</span></button>
+    <button class="dk-nav" data-step="3"><span class="dk-nav-ic">③</span><span class="dk-nav-name">Guide TV</span></button>
+    <button class="dk-nav" data-step="4"><span class="dk-nav-ic">④</span><span class="dk-nav-name">Jellyfin</span></button>
+    <div class="dk-side-sep"></div>
+    <button class="dk-nav" data-step="check"><span class="dk-nav-ic">✓</span><span class="dk-nav-name">Vérification</span></button>
+    <button class="dk-nav" data-step="apps"><span class="dk-nav-ic">📺</span><span class="dk-nav-name">Applis TV</span></button>
+    <button class="dk-nav" data-step="engine"><span class="dk-nav-ic">⚙</span><span class="dk-nav-name">Réglages avancés</span></button>
+    <div class="dk-side-fill"></div>
+    <div class="dk-side-note" id="engineState">Moteur…</div>
+  </nav>
+  <section class="dk-main">
+    <header class="dk-head">
+      <div class="dk-head-text">
+        <h1 class="dk-title" id="title">Abonnement</h1>
+        <div class="dk-sub" id="sub">La liste de chaînes de votre fournisseur.</div>
+      </div>
+      <div class="dk-head-actions"><button class="dk-btn" id="refresh">Actualiser</button></div>
+    </header>
+    <div class="dk-body" id="body"></div>
+  </section>
+</div>
+
+<script>
+'use strict';
+var S = {};            // dernier état connu du serveur
+var groups = [];       // groupes de la liste de lecture
+var step = '1';
+
+function el(html) { var d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function date(ms) { return ms ? new Date(ms).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : ''; }
+
+async function api(path, body) {
+  var opt = { cache: 'no-store', credentials: 'same-origin' };
+  if (body !== undefined) {
+    opt.method = 'POST';
+    opt.headers = { 'Content-Type': 'application/json' };
+    opt.body = JSON.stringify(body);
+  }
+  var r = await fetch(path, opt);
+  var data = null;
+  try { data = await r.json(); } catch (_) { data = null; }
+  if (!r.ok) throw new Error((data && data.error) || ('Erreur ' + r.status));
+  return data || {};
+}
+
+function busy(btn, on, label) {
+  if (!btn) return;
+  btn.disabled = !!on;
+  btn.innerHTML = on ? '<span class="tv-wait"></span> ' + esc(label || 'Patientez…') : btn.dataset.label;
+}
+function say(where, text, kind) {
+  var n = document.getElementById(where);
+  if (n) { n.className = 'tv-msg ' + (kind || ''); n.innerHTML = text; }
+}
+
+// ---------------------------------------------------------------- Écrans
+
+function stepSubscription() {
+  return `
+  <div class="tv-step">
+    <h2>Votre abonnement</h2>
+    <p class="tv-lead">Collez l'adresse de la liste de chaînes que votre fournisseur vous a donnée.
+      Elle ressemble à <code>http://serveur/get.php?username=…&amp;password=…</code>. Elle ne sort pas de votre NAS.</p>
+    <div class="tv-field">
+      <label for="url">Adresse de la liste de lecture</label>
+      <input class="dk-input" id="url" placeholder="http://…/get.php?username=…&amp;password=…" value="">
+    </div>
+    <div class="tv-row">
+      <button class="dk-btn primary" id="go" data-label="Vérifier et continuer">Vérifier et continuer</button>
+      <a class="dk-btn" href="https://${S.site}" target="_blank" rel="noopener">Pas d'abonnement ? ${S.site}</a>
+    </div>
+    <div class="tv-msg" id="m"></div>
+    <p class="tv-note">Déjà réglée : ${S.subscriptionUrl ? esc(S.subscriptionUrl) : '—'}</p>
+  </div>`;
+}
+
+function stepChannels() {
+  var list = groups.length ? groups.map(function (g, i) {
+    var pre = /fr|franc/i.test(g.name);
+    return '<label><input type="checkbox" value="' + esc(g.name) + '"' + (pre ? ' checked' : '') + '> ' +
+      '<span>' + esc(g.name) + '</span><span class="n">' + g.count + '</span></label>';
+  }).join('') : '<p class="dk-muted">Chargez d\'abord la liste à l\'écran précédent.</p>';
+  return `
+  <div class="tv-step">
+    <h2>Les chaînes à garder</h2>
+    <p class="tv-lead">Votre liste contient souvent des dizaines de milliers de flux. Choisissez les groupes qui vous intéressent :
+      les autres n'apparaîtront pas dans Jellyfin, qui restera rapide.</p>
+    <div class="tv-groups" id="groups">${list}</div>
+    <div class="tv-field" style="margin-top:14px">
+      <label><input type="checkbox" id="hdOnly"> Garder seulement la version HD de chaque chaîne (sinon : HD, SD, HEVC et 4K, au choix dans l'appli)</label>
+    </div>
+    <div class="tv-row">
+      <button class="dk-btn" id="all" data-label="Tout cocher">Tout cocher</button>
+      <button class="dk-btn" id="none" data-label="Tout décocher">Tout décocher</button>
+      <button class="dk-btn primary" id="go" data-label="Garder ces chaînes">Garder ces chaînes</button>
+    </div>
+    <div class="tv-msg" id="m"></div>
+  </div>`;
+}
+
+function stepGuide() {
+  return `
+  <div class="tv-step">
+    <h2>Le guide des programmes</h2>
+    <p class="tv-lead">Desktroo utilise un guide français gratuit, mis à jour chaque nuit, et l'associe tout seul à vos chaînes.
+      Les chaînes sans programme restent visibles.</p>
+    <div class="tv-row">
+      <button class="dk-btn primary" id="go" data-label="Installer le guide">Installer le guide</button>
+      <button class="dk-btn" id="own" data-label="Utiliser celui du fournisseur">Utiliser celui du fournisseur</button>
+    </div>
+    <div class="tv-msg" id="m"></div>
+    <p class="tv-note">Guides en place : ${(S.guides || []).map(function (g) { return esc(g.name) + ' (' + g.programs + ' programmes)'; }).join(' · ') || 'aucun'}</p>
+  </div>`;
+}
+
+function stepJellyfin() {
+  return `
+  <div class="tv-step">
+    <h2>Relier Jellyfin</h2>
+    <p class="tv-lead">Desktroo déclare le tuner et le guide dans Jellyfin à votre place. Donnez-lui un compte administrateur
+      de votre Jellyfin : il crée une clé d'accès et n'enregistre pas votre mot de passe.</p>
+    <div class="tv-field">
+      <label for="jurl">Adresse de Jellyfin</label>
+      <input class="dk-input" id="jurl" value="${esc(S.jellyfin.url || 'http://dt-jellyfin:8096')}">
+    </div>
+    <div class="tv-field">
+      <label for="juser">Compte administrateur</label>
+      <input class="dk-input" id="juser" autocomplete="off">
+    </div>
+    <div class="tv-field">
+      <label for="jpass">Mot de passe</label>
+      <input class="dk-input" id="jpass" type="password" autocomplete="off">
+    </div>
+    <div class="tv-row"><button class="dk-btn primary" id="go" data-label="Relier et terminer">Relier et terminer</button></div>
+    <div class="tv-msg" id="m">${S.jellyfin.linked ? 'Déjà relié à ' + esc(S.jellyfin.url) + '.' : ''}</div>
+    <p class="tv-note">Tuner déclaré : <code>${esc(S.tunerUrl)}</code><br>Guide déclaré : <code>${esc(S.guideUrl)}</code></p>
+  </div>`;
+}
+
+function stepApps() {
+  return `
+  <div class="tv-step">
+    <h2>Regarder la TV</h2>
+    <p class="tv-lead">Vos chaînes sont dans Jellyfin : tous ses lecteurs les voient. Pour une vraie expérience de TV
+      (zapping, guide en grille, favoris), installez TIVImu.</p>
+    <ul class="dk-list dk-group">
+      <li><span>📱</span><div><b>Téléphone et tablette</b><div class="dk-muted">Installez l'APK depuis la page des versions, puis connectez-vous à Jellyfin.</div></div></li>
+      <li><span>📺</span><div><b>Fire TV et Android TV</b><div class="dk-muted">Application « Downloader », puis l'adresse de la dernière version.</div></div></li>
+      <li><span>🖥️</span><div><b>Navigateur</b><div class="dk-muted">Jellyfin → TV en direct, sans rien installer.</div></div></li>
+    </ul>
+    <div class="tv-row"><a class="dk-btn primary" href="https://github.com/Nabief/TIVImu-releases/releases/latest" target="_blank" rel="noopener">Télécharger TIVImu</a></div>
+  </div>`;
+}
+
+function stepCheck() {
+  return `
+  <div class="tv-step">
+    <h2>Vérification</h2>
+    <p class="tv-lead">Contrôle de bout en bout : abonnement, liste, chaînes, guide et Jellyfin.</p>
+    <div class="tv-row"><button class="dk-btn primary" id="go" data-label="Vérifier mon installation">Vérifier mon installation</button></div>
+    <ul class="tv-checks" id="checks"></ul>
+    <div class="tv-msg" id="m"></div>
+  </div>`;
+}
+
+function stepEngine() {
+  return `
+  <div class="tv-step" style="max-width:none">
+    <p class="tv-lead">Réglages fins du moteur Threadfin : filtres, association chaîne par chaîne, journal.
+      L'assistant suffit dans la plupart des cas.</p>
+    <iframe class="tv-engine" src="engine/web/" title="Moteur TV"></iframe>
+  </div>`;
+}
+
+var STEPS = {
+  '1': { title: 'Abonnement', sub: 'La liste de chaînes de votre fournisseur.', html: stepSubscription },
+  '2': { title: 'Chaînes', sub: 'Les groupes que vous voulez voir.', html: stepChannels },
+  '3': { title: 'Guide TV', sub: 'Les programmes, associés automatiquement.', html: stepGuide },
+  '4': { title: 'Jellyfin', sub: 'Le tuner et le guide déclarés à votre place.', html: stepJellyfin },
+  check: { title: 'Vérification', sub: 'Tout fonctionne-t-il ?', html: stepCheck },
+  apps: { title: 'Applis TV', sub: 'Regarder sur la télé, le téléphone ou le navigateur.', html: stepApps },
+  engine: { title: 'Réglages avancés', sub: 'Le moteur, pour les cas particuliers.', html: stepEngine },
+};
+
+// ---------------------------------------------------------------- Actions
+
+function wire() {
+  var go = document.getElementById('go');
+  if (go) go.dataset.label = go.textContent;
+
+  if (step === '1') {
+    var url = document.getElementById('url');
+    go.onclick = async function () {
+      busy(go, true, 'Vérification…');
+      try {
+        var sub = await api('api/subscription', { url: url.value });
+        var line = '<div class="tv-sub"><span><b>' + esc(sub.status) + '</b></span>' +
+          (sub.expiresAt ? '<span>jusqu\'au <b>' + date(sub.expiresAt) + '</b></span>' : '') +
+          '<span>' + sub.connections + ' / ' + sub.maxConnections + ' connexion(s)</span>' +
+          (sub.trial ? '<span>essai</span>' : '') + '</div>';
+        say('m', line + '<p>Chargement de la liste…</p>', sub.active ? 'ok' : 'err');
+        busy(go, true, 'Chargement de la liste…');
+        var res = await api('api/playlist', { url: url.value, tuner: sub.maxConnections });
+        groups = res.groups || [];
+        say('m', line + '<p class="ok">' + res.streams + ' flux reçus, ' + groups.length + ' groupes. Passez aux chaînes.</p>', 'ok');
+        show('2');
+      } catch (e) {
+        say('m', esc(e.message), 'err');
+      }
+      busy(go, false);
+    };
+  }
+
+  if (step === '2') {
+    var boxes = function () { return Array.prototype.slice.call(document.querySelectorAll('#groups input')); };
+    document.getElementById('all').onclick = function () { boxes().forEach(function (b) { b.checked = true; }); };
+    document.getElementById('none').onclick = function () { boxes().forEach(function (b) { b.checked = false; }); };
+    go.onclick = async function () {
+      var chosen = boxes().filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+      busy(go, true, 'Mise en place…');
+      try {
+        var r = await api('api/filters', { groups: chosen, hdOnly: document.getElementById('hdOnly').checked });
+        say('m', r.channels + ' chaîne(s) retenue(s). Passez au guide.', 'ok');
+        await load();
+        show('3');
+      } catch (e) { say('m', esc(e.message), 'err'); }
+      busy(go, false);
+    };
+  }
+
+  if (step === '3') {
+    var run = async function (btn, payload) {
+      busy(btn, true, 'Installation du guide…');
+      try {
+        var r = await api('api/guide', payload);
+        say('m', r.matched + ' chaîne(s) avec programmes, ' + r.dummy + ' sans (elles restent visibles). Passez à Jellyfin.', 'ok');
+        await load();
+        show('4');
+      } catch (e) { say('m', esc(e.message), 'err'); }
+      busy(btn, false);
+    };
+    go.onclick = function () { run(go, {}); };
+    var own = document.getElementById('own');
+    own.dataset.label = own.textContent;
+    own.onclick = function () {
+      var u = prompt("Adresse du guide de votre fournisseur (xmltv.php…)");
+      if (u) run(own, { url: u });
+    };
+  }
+
+  if (step === '4') {
+    go.onclick = async function () {
+      busy(go, true, 'Liaison…');
+      try {
+        var r = await api('api/jellyfin', {
+          url: document.getElementById('jurl').value,
+          user: document.getElementById('juser').value,
+          password: document.getElementById('jpass').value,
+        });
+        document.getElementById('jpass').value = '';
+        say('m', '<span class="tv-done">Terminé : ' + esc(r.server) + ' reçoit vos chaînes.' +
+          (r.refreshing ? ' Le guide se remplit, cela prend quelques minutes.' : '') + '</span>', 'ok');
+        if (window.desktroo) desktroo.notify('TV en direct installée', 'success');
+        await load();
+      } catch (e) { say('m', esc(e.message), 'err'); }
+      busy(go, false);
+    };
+  }
+
+  if (step === 'check') {
+    var run = async function () {
+      busy(go, true, 'Vérification…');
+      try {
+        var r = await api('api/check');
+        document.getElementById('checks').innerHTML = (r.checks || []).map(function (c) {
+          return '<li><span class="ic">' + (c.ok ? '✅' : '⚠️') + '</span><div><b>' + esc(c.label) + '</b>' +
+            (c.detail ? '<div class="d">' + esc(c.detail) + '</div>' : '') + '</div></li>';
+        }).join('');
+      } catch (e) { say('m', esc(e.message), 'err'); }
+      busy(go, false);
+    };
+    go.onclick = run;
+    run();
+  }
+}
+
+function show(id) {
+  step = id;
+  var def = STEPS[id] || STEPS['1'];
+  document.getElementById('title').textContent = def.title;
+  document.getElementById('sub').textContent = def.sub;
+  document.getElementById('body').innerHTML = def.html();
+  Array.prototype.slice.call(document.querySelectorAll('#nav .dk-nav')).forEach(function (b) {
+    b.classList.toggle('active', b.dataset.step === id);
+  });
+  if (id === '1') {
+    var u = document.getElementById('url');
+    if (u && !u.value && S.subscriptionUrl && S.subscriptionUrl.indexOf('••••') < 0) u.value = S.subscriptionUrl;
+  }
+  wire();
+}
+
+async function load() {
+  try {
+    S = await api('api/state');
+    groups = (S.groups && S.groups.length) ? S.groups : groups;
+    var e = document.getElementById('engineState');
+    e.textContent = S.engine.ok
+      ? 'Moteur ' + (S.engine.version || 'prêt') + ' · ' + S.channels + ' chaîne(s)'
+      : 'Moteur en cours de démarrage…';
+  } catch (err) {
+    document.getElementById('engineState').textContent = 'Moteur injoignable';
+  }
+}
+
+document.getElementById('nav').addEventListener('click', function (ev) {
+  var b = ev.target.closest('.dk-nav');
+  if (b) show(b.dataset.step);
+});
+document.getElementById('refresh').onclick = async function () { await load(); show(step); };
+
+(async function () {
+  await load();
+  // Reprise : on ouvre l'écran là où l'installation s'est arrêtée.
+  var start = !S.playlist ? '1' : (!S.channels ? '2' : (!S.withGuide ? '3' : (!S.jellyfin.linked ? '4' : 'check')));
+  show(start);
+})();
+</script>
+</body>
+</html>

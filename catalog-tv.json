@@ -1,0 +1,29 @@
+{
+  "id": "tv",
+  "name": { "fr": "Desktroo TV", "en": "Desktroo TV", "es": "Desktroo TV" },
+  "tagline": {
+    "fr": "La TV en direct de votre abonnement, dans Jellyfin, en quatre écrans",
+    "en": "Your IPTV subscription as live TV in Jellyfin, in four screens",
+    "es": "La TV en directo de tu suscripción, en Jellyfin, en cuatro pantallas"
+  },
+  "description": {
+    "fr": "Ajoutez la télévision en direct à votre serveur Jellyfin sans rien configurer à la main.\n\nL'assistant vous demande l'adresse de la liste de chaînes de votre fournisseur, vérifie votre abonnement et sa date de fin, vous laisse cocher les groupes de chaînes à garder, installe un guide des programmes français gratuit, l'associe tout seul à vos chaînes, puis déclare le tuner et le guide dans Jellyfin et lance l'actualisation. Une page de vérification contrôle ensuite toute la chaîne et dit ce qui cloche.\n\nVos chaînes apparaissent alors dans Jellyfin sur tous vos écrans, et dans TIVImu sur la télé : zapping, guide en grille, favoris, choix du flux (4K, FHD, HD, SD).\n\nRien n'est ouvert sur votre réseau : le moteur reste privé au NAS. Le mot de passe de votre Jellyfin n'est pas enregistré.\n\nMoteur Threadfin (MIT), compilé depuis sa source, non modifié. Desktroo n'est ni affilié au projet Threadfin ni soutenu par lui.",
+    "en": "Add live TV to your Jellyfin server without configuring anything by hand.\n\nThe wizard asks for your provider's channel list address, checks your subscription and its expiry date, lets you tick the channel groups to keep, installs a free French TV guide, matches it to your channels on its own, then declares the tuner and the guide in Jellyfin and starts the refresh. A check page then tests the whole chain and tells you what is wrong.\n\nYour channels show up in Jellyfin on every screen, and in TIVImu on the TV: zapping, grid guide, favourites, stream quality (4K, FHD, HD, SD).\n\nNothing is opened on your network: the engine stays private to the NAS. Your Jellyfin password is not stored.\n\nThreadfin engine (MIT), built from source, unmodified. Desktroo is not affiliated with or endorsed by the Threadfin project.",
+    "es": "Añade la televisión en directo a tu servidor Jellyfin sin configurar nada a mano.\n\nEl asistente te pide la dirección de la lista de canales de tu proveedor, comprueba tu suscripción y su fecha de fin, te deja marcar los grupos de canales que quieres conservar, instala una guía de programación francesa gratuita, la asocia automáticamente a tus canales y después declara el sintonizador y la guía en Jellyfin y lanza la actualización. Una página de comprobación revisa toda la cadena e indica qué falla.\n\nTus canales aparecen en Jellyfin en todas tus pantallas, y en TIVImu en el televisor: zapeo, guía en cuadrícula, favoritos y elección del flujo (4K, FHD, HD, SD).\n\nNo se abre nada en tu red: el motor permanece privado en el NAS. La contraseña de Jellyfin no se guarda.\n\nMotor Threadfin (MIT), compilado desde su código fuente, sin modificar. Desktroo no está afiliado al proyecto Threadfin ni cuenta con su respaldo."
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "min_desktroo": "3.1.0",
+  "image": "ghcr.io/nabief/desktroo-tv",
+  "digest": "",
+  "port": 8080,
+  "health": "/healthz",
+  "sso": "header",
+  "run_as": "568:568",
+  "read_only": true,
+  "env": { "TZ": "@host" },
+  "volumes": [ { "name": "data", "mount": "/data" } ],
+  "resources": { "memory_mb": 1024, "cpus": 2 },
+  "window": { "width": 1120, "height": 780 },
+  "icon": "icons/tv.svg"
+}

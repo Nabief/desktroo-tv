@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Desktroo TV">
+  <rect x="6" y="16" width="52" height="34" rx="7" fill="none" stroke="#e9eef7" stroke-width="4"/>
+  <path d="M22 16 32 7l10 9" fill="none" stroke="#3ecf8e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M26 26v14l13-7z" fill="#3ecf8e"/>
+  <path d="M20 56h24" stroke="#e9eef7" stroke-width="4" stroke-linecap="round"/>
+</svg>

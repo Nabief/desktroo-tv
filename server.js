@@ -160,6 +160,11 @@ async function engineDefaults() {
 function providerUrl(raw) {
   let u;
   try { u = new URL(String(raw || '').trim()); } catch (_) { throw fail("Adresse de liste non comprise."); }
+  // Confusion courante : l'adresse du guide (xmltv.php) collée à la place de celle des chaînes (get.php).
+  if (/xmltv/i.test(u.pathname)) {
+    throw fail("C'est l'adresse du guide des programmes, pas celle de la liste de chaînes. " +
+      "Collez celle qui finit par « get.php?username=…&password=… » ; le guide s'installe tout seul à l'écran ③.");
+  }
   const user = u.searchParams.get('username');
   const pass = u.searchParams.get('password');
   if (!user || !pass) throw fail("L'adresse doit contenir username et password (celle du fournisseur, « …/get.php?username=…&password=… »).");
@@ -370,8 +375,13 @@ async function routes(req, res, url, user) {
     state.subscription = u;
     await saveState();
     const groups = groupsOf(after);
-    return json(res, 200, { groups: groups, streams: (((after.data || {}).StreamPreviewUI || {}).inactiveStreams || []).length +
-      (((after.data || {}).StreamPreviewUI || {}).activeStreams || []).length });
+    const streams = (((after.data || {}).StreamPreviewUI || {}).inactiveStreams || []).length +
+      (((after.data || {}).StreamPreviewUI || {}).activeStreams || []).length;
+    if (!streams) {
+      throw fail("Le fichier reçu ne contient aucune chaîne. Vérifiez qu'il s'agit bien de l'adresse de la liste " +
+        "(« …/get.php?username=…&password=…&type=m3u_plus ») et que l'abonnement est actif.");
+    }
+    return json(res, 200, { groups: groups, streams: streams });
   }
 
   // 3. Chaînes : un filtre par groupe choisi.

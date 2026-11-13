@@ -298,14 +298,33 @@ function progress(label, unit, done, total) {
 
 async function makeFilters(groups, opts) {
   const o = opts || {};
-  // L'écran ③ décrit l'ensemble des chaînes voulues : on repart des groupes cochés plutôt que
-  // d'empiler les filtres des passages précédents, qui feraient réapparaître des chaînes décochées.
+  const include = o.hdOnly ? 'HD' : 'HD,SD,HEVC,4K';
+  const exclude = (o.exclude === undefined ? DEFAULT_EXCLUDE : String(o.exclude));
   const before = await tf.state();
-  let last = await dropFilters(before, Object.keys((before.settings || {}).filter || {}));
-  let n = 1000;
+  const filters = (before.settings || {}).filter || {};
   const wanted = groups.slice(0, 40);
-  progress('Mise en place de vos groupes', 'Groupe', 0, wanted.length);
-  for (const g of wanted) {
+  // L'écran ③ décrit l'ensemble voulu, mais le refaire entièrement coûterait au moteur une
+  // reconstruction par groupe — des minutes pour un seul groupe ajouté. On ne touche donc qu'à ce
+  // qui change : retraits et corrections partent ensemble, seuls les nouveaux groupes sont créés.
+  const req = {};
+  const garde = {};
+  let maxNum = 0;
+  for (const id of Object.keys(filters)) {
+    const rule = String(filters[id].filter || '');
+    maxNum = Math.max(maxNum, Number(filters[id].startingNumber) || 0);
+    if (!rule || wanted.indexOf(rule) === -1 || garde[rule]) { req[id] = { delete: true }; continue; }
+    garde[rule] = true;
+    if (String(filters[id].include || '') !== include || String(filters[id].exclude || '') !== exclude) {
+      req[id] = Object.assign({}, filters[id], { include: include, exclude: exclude });
+    }
+  }
+  const aCreer = wanted.filter((g) => !garde[g]);
+  makeFilters.cree = aCreer.length;
+  makeFilters.change = aCreer.length + Object.keys(req).length;
+  progress('Mise en place de vos groupes', 'Groupe', 0, aCreer.length);
+  let last = Object.keys(req).length ? await tf.saveFilter(req) : before;
+  let n = Math.max(1000, maxNum + 1000);
+  for (const g of aCreer) {
     const f = {
       name: String(g).replace(/^.*\|\s*/, '').trim() || String(g),
       filter: String(g),
@@ -313,14 +332,14 @@ async function makeFilters(groups, opts) {
       caseSensitive: false,
       liveEvent: false,
       description: '',
-      include: o.hdOnly ? 'HD' : 'HD,SD,HEVC,4K',
-      exclude: (o.exclude === undefined ? DEFAULT_EXCLUDE : String(o.exclude)),
+      include: include,
+      exclude: exclude,
       startingNumber: String(n),
       'x-category': '',
     };
     last = await tf.saveFilter({ '-1': f });
     n += 1000;
-    progress('Mise en place de vos groupes', 'Groupe', wanted.indexOf(g) + 1, wanted.length);
+    progress('Mise en place de vos groupes', 'Groupe', aCreer.indexOf(g) + 1, aCreer.length);
   }
   return last;
 }
@@ -330,41 +349,67 @@ async function makeFilters(groups, opts) {
  * les autres versions d'une même chaîne reprenant l'association de la première trouvée.
  * Les chaînes sans programme reçoivent une grille de remplacement, pour rester visibles.
  */
-function mapChannels(server, guideFile) {
+function mapChannels(server, guides) {
+  const list = (Array.isArray(guides) ? guides : [guides]).filter(Boolean);
   const xepg = server.xepg || {};
   const mapping = xepg.epgMapping || {};
-  const xm = (xepg.xmltvMap || {})[guideFile] || {};
-  const byId = {}, byName = {};
-  for (const id of Object.keys(xm)) {
-    byId[id.toLowerCase()] = id;
-    const disp = norm((xm[id] || {})['display-name']);
-    if (disp && !byName[disp]) byName[disp] = id;
-    const stem = norm(id.replace(/\.[a-z]{2,3}$/i, ''));
-    if (stem && !byName[stem]) byName[stem] = id;
-  }
-  const sibling = {};
-  let matched = 0, dummy = 0;
+  const sources = list.map((f) => {
+    const xm = (xepg.xmltvMap || {})[f] || {};
+    const byId = {}, byName = {};
+    for (const id of Object.keys(xm)) {
+      byId[id.toLowerCase()] = id;
+      const disp = norm((xm[id] || {})['display-name']);
+      if (disp && !byName[disp]) byName[disp] = id;
+      const stem = norm(id.replace(/\.[a-z]{2,3}$/i, ''));
+      if (stem && !byName[stem]) byName[stem] = id;
+    }
+    return { file: f, xm: xm, byId: byId, byName: byName, sibling: {}, matched: 0 };
+  });
   const values = Object.keys(mapping).map((k) => mapping[k]);
-  for (const v of values) {
-    const key = norm(v['x-name']);
-    const id = byId[String(v['tvg-id'] || '').toLowerCase()] || byName[key] || null;
-    if (id) sibling[key] = id;
+  // Les variantes d'une même chaîne (HD, FHD, SD) partagent le programme trouvé pour l'une d'elles.
+  for (const src of sources) {
+    for (const v of values) {
+      const key = norm(v['x-name']);
+      const id = src.byId[String(v['tvg-id'] || '').toLowerCase()] || src.byName[key] || null;
+      if (id && !src.sibling[key]) src.sibling[key] = id;
+    }
   }
+  let matched = 0, dummy = 0;
   for (const v of values) {
     const key = norm(v['x-name']);
-    const id = sibling[key] || null;
-    if (id && xm[id]) {
-      v['x-xmltv-file'] = guideFile;
-      v['x-mapping'] = id;
-      matched++;
-    } else {
+    let trouve = false;
+    for (const src of sources) {
+      const id = src.sibling[key];
+      if (id && src.xm[id]) {
+        v['x-xmltv-file'] = src.file;          // le premier guide qui connaît la chaîne l'emporte
+        v['x-mapping'] = id;
+        src.matched++;
+        matched++;
+        trouve = true;
+        break;
+      }
+    }
+    if (!trouve) {
       v['x-xmltv-file'] = 'Threadfin Dummy';
       v['x-mapping'] = '120_Minutes';
       dummy++;
     }
     v['x-active'] = true;
   }
-  return { mapping: mapping, matched: matched, dummy: dummy, total: values.length };
+  return { mapping: mapping, matched: matched, dummy: dummy, total: values.length,
+    sources: sources.map((x) => ({ file: x.file, matched: x.matched })) };
+}
+
+/**
+ * Tous les guides en place, celui dont le nom est donné en tête. Un fournisseur couvre souvent des
+ * chaînes que le guide français ignore, et l'inverse : chaque chaîne prendra le premier qui la
+ * connaît, au lieu de tout jouer sur une seule source.
+ */
+function guideFilesOf(server, firstName) {
+  const files = ((server.settings || {}).files || {}).xmltv || {};
+  const ids = Object.keys(files);
+  ids.sort((a, b) => (files[b].name === firstName ? 1 : 0) - (files[a].name === firstName ? 1 : 0));
+  return ids.map((id) => ({ id: id, file: id + '.xml', entry: files[id], name: files[id].name }));
 }
 
 function guideFileOf(server, name) {
@@ -475,9 +520,9 @@ async function toDummy(server) {
 
 /** Réassocie le guide comme à l'écran ④, pour que les chaînes nouvellement apparues aient leur programme. */
 async function remap(server) {
-  const guide = guideFileOf(server, null);
-  if (!guide) return server;
-  const mapped = mapChannels(server, guide.file);
+  const guides = guideFilesOf(server, null);
+  if (!guides.length) return server;
+  const mapped = mapChannels(server, guides.map((g) => g.file));
   if (!mapped.total) return server;
   return tf.saveEpgMapping(mapped.mapping);
 }
@@ -576,13 +621,28 @@ async function routes(req, res, url, user) {
     const b = await body(req);
     const groups = Array.isArray(b.groups) ? b.groups.map(String) : [];
     if (!groups.length) throw fail('Choisissez au moins un groupe de chaînes.');
-    let server = await makeFilters(groups, { hdOnly: !!b.hdOnly, exclude: b.exclude });
-    progress('Association du guide', 'Étape', 0, 2);
-    server = await activate(server);
-    // Une version d'une chaîne a pu être confondue avec une autre pendant la construction : une
-    // reconstruction, chaînes actives cette fois, la recrée.
-    progress('Association du guide', 'Étape', 1, 2);
-    server = await activate(await rebuild(server));
+    // Le moteur cesse d'écouter une ou deux secondes après avoir appliqué un filtre : la réponse se
+    // perd alors que le travail est fait. Comme makeFilters ne pose que ce qui manque, le rejouer
+    // après l'avoir attendu reprend exactement là où il s'était arrêté, sans rien créer en double.
+    let server = null;
+    for (let essai = 0; ; essai++) {
+      try { server = await makeFilters(groups, { hdOnly: !!b.hdOnly, exclude: b.exclude }); break; }
+      catch (e) {
+        if (essai >= 3 || !/coupé la connexion|injoignable/i.test(String(e.message))) throw e;
+        await tf.ready(60);
+      }
+    }
+    // Chaque passe fait réécrire tout le guide au moteur : on n'en fait que le nécessaire. Rien
+    // n'a changé, rien à faire ; des groupes seulement retirés, une passe suffit ; des groupes
+    // ajoutés, une seconde passe récupère les versions de chaînes confondues à la construction.
+    if (makeFilters.change) {
+      progress('Association du guide', 'Étape', 0, makeFilters.cree ? 2 : 1);
+      server = await activate(server);
+      if (makeFilters.cree) {
+        progress('Association du guide', 'Étape', 1, 2);
+        server = await activate(await rebuild(server));
+      }
+    }
     progress('', '', 0, 0);
     const mapping = ((server || {}).xepg || {}).epgMapping || {};
     return json(res, 200, { channels: Object.keys(mapping).length });
@@ -600,13 +660,17 @@ async function routes(req, res, url, user) {
     const stale = Object.keys(files).find((id) => files[id].name === name && files[id]['file.source'] !== wanted);
     if (!existing && stale) await tf.deleteXMLTV(stale);
     server = await tf.saveXMLTV(existing, name, wanted);
-    const guide = guideFileOf(server, name);
-    if (!guide) throw fail("Le guide n'a pas été enregistré.");
-    const mapped = mapChannels(server, guide.file);
+    const guides = guideFilesOf(server, name);                 // celui qu'on vient de choisir en tête
+    if (!guides.length) throw fail("Le guide n'a pas été enregistré.");
+    const mapped = mapChannels(server, guides.map((g) => g.file));
     if (!mapped.total) throw fail("Aucune chaîne à associer : choisissez d'abord vos groupes de chaînes.");
     await tf.saveEpgMapping(mapped.mapping);
-    return json(res, 200, { matched: mapped.matched, dummy: mapped.dummy, total: mapped.total,
-      programs: ((guide.entry.compatibility || {})['xmltv.programs']) || 0 });
+    const parSource = mapped.sources.map((x) => {
+      const g = guides.find((y) => y.file === x.file);
+      return { name: (g && g.name) || x.file, matched: x.matched };
+    });
+    return json(res, 200, { matched: mapped.matched, dummy: mapped.dummy, total: mapped.total, sources: parSource,
+      programs: guides.reduce((n, g) => n + (((g.entry.compatibility || {})['xmltv.programs']) || 0), 0) });
   }
 
   // 5. Jellyfin : tuner, guide et actualisation.

@@ -99,7 +99,28 @@ function readFrame(buf) {
  * Envoie une commande à Threadfin et rend sa réponse (l'état complet du serveur).
  * Une commande = une connexion, comme le fait son interface web.
  */
-function cmd(name, data, timeoutMs) {
+/**
+ * Le moteur redémarre de lui-même après certains réglages. Une adresse retenue pendant qu'il était
+ * absent le rend introuvable pour toute la suite : on repart donc de la boucle locale et on
+ * réessaie — mais seulement quand la connexion n'a pas pu s'établir, car une commande partie a pu
+ * être exécutée malgré la coupure, et la rejouer créerait un doublon.
+ */
+async function cmd(name, data, timeoutMs) {
+  for (let essai = 0; ; essai++) {
+    try {
+      return await once(name, data, timeoutMs);
+    } catch (e) {
+      HOST = '127.0.0.1';
+      // Seulement quand la connexion n'a pas pu s'établir : une commande partie a pu être exécutée
+      // malgré la coupure, et la rejouer créerait un doublon.
+      if (essai >= 6 || !/injoignable/i.test(String(e && e.message))) throw e;
+      await new Promise((r) => setTimeout(r, 1500));
+      await reach(2000);
+    }
+  }
+}
+
+function once(name, data, timeoutMs) {
   return new Promise((resolve, reject) => {
     const key = crypto.randomBytes(16).toString('base64');
     const sock = net.connect(PORT, HOST);

@@ -285,6 +285,8 @@ function stepGuide() {
     <h2>Le guide des programmes</h2>
     <p class="tv-lead">Desktroo utilise un guide français gratuit, mis à jour chaque nuit, et l'associe tout seul à vos chaînes.
       Les chaînes sans programme restent visibles.</p>
+    <p class="tv-lead">Vous pouvez installer <b>les deux</b> : cliquez l'un puis l'autre. Chaque chaîne prend alors le premier
+      guide qui la connaît, le dernier installé étant prioritaire — de quoi couvrir les chaînes qu'un seul des deux ignore.</p>
     <div class="tv-row">
       <button class="dk-btn primary" id="go" data-label="Installer le guide">Installer le guide</button>
       <button class="dk-btn" id="own" data-label="Utiliser celui du fournisseur">Utiliser celui du fournisseur</button>
@@ -568,7 +570,11 @@ function wire() {
       wait(true, 'Installation du guide…', 'Téléchargement des programmes puis association à vos chaînes.');
       try {
         var r = await api('api/guide', payload);
-        say('m', r.matched + ' chaîne(s) avec programmes, ' + r.dummy + ' sans (elles restent visibles). Passez à Jellyfin.', 'ok');
+        var detail = (r.sources || []).filter(function (x) { return x.matched; })
+          .map(function (x) { return esc(x.name) + ' : ' + x.matched; }).join(' · ');
+        say('m', r.matched + ' chaîne(s) avec programmes, ' + r.dummy + ' sans (elles restent visibles).' +
+          ((r.sources || []).length > 1 ? '<br><span class="dk-muted">' + detail + '</span>' : '') +
+          ' Passez à Jellyfin.', 'ok');
         await load();
         show('4');
       } catch (e) { say('m', esc(e.message), 'err'); }

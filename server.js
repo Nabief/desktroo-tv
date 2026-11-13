@@ -251,6 +251,18 @@ function groupsOf(server) {
 }
 
 /**
+ * Supprime des filtres. Le moteur traite toute la demande puis reconstruit sa base une seule fois :
+ * les envoyer ensemble évite autant de reconstructions que de filtres — des minutes sur une grosse
+ * liste. La création, elle, reste un par un : le moteur ne sait créer qu'un filtre à la fois.
+ */
+async function dropFilters(server, ids) {
+  if (!ids.length) return server;
+  const req = {};
+  for (const id of ids) req[id] = { delete: true };
+  return tf.saveFilter(req);
+}
+
+/**
  * Rattrape les filtres devenus inopérants. Un fournisseur qui renomme un groupe — ne serait-ce
  * qu'en ajoutant une espace à la fin — fait disparaître ses chaînes sans un mot, puisque le moteur
  * exige un nom identique. On ne corrige que les cas sans ambiguïté, et on retire les doublons.
@@ -260,17 +272,17 @@ async function repairFilters(server) {
   if (!names.length) return server;
   const filters = (server.settings || {}).filter || {};
   const seen = [];
-  let last = server;
+  const req = {};
   for (const id of Object.keys(filters)) {
     const rule = String(filters[id].filter || '');
     if (!rule) continue;
-    if (seen.indexOf(rule) !== -1) { last = await tf.saveFilter({ [id]: { delete: true } }); continue; }
+    if (seen.indexOf(rule) !== -1) { req[id] = { delete: true }; continue; }   // doublon d'un passage précédent
     seen.push(rule);
     if (names.indexOf(rule) !== -1) continue;
     const near = names.filter((n) => n.trim().toLowerCase() === rule.trim().toLowerCase());
-    if (near.length === 1) last = await tf.saveFilter({ [id]: Object.assign({}, filters[id], { filter: near[0] }) });
+    if (near.length === 1) req[id] = Object.assign({}, filters[id], { filter: near[0] });
   }
-  return last;
+  return Object.keys(req).length ? tf.saveFilter(req) : server;
 }
 
 const DEFAULT_EXCLUDE = '✦●✦,24/7,[BK]';
@@ -280,8 +292,8 @@ async function makeFilters(groups, opts) {
   const o = opts || {};
   // L'écran ③ décrit l'ensemble des chaînes voulues : on repart des groupes cochés plutôt que
   // d'empiler les filtres des passages précédents, qui feraient réapparaître des chaînes décochées.
-  let last = await tf.state();
-  for (const id of Object.keys((last.settings || {}).filter || {})) last = await tf.saveFilter({ [id]: { delete: true } });
+  const before = await tf.state();
+  let last = await dropFilters(before, Object.keys((before.settings || {}).filter || {}));
   let n = 1000;
   for (const g of groups.slice(0, 40)) {
     const f = {
@@ -626,7 +638,7 @@ async function routes(req, res, url, user) {
     }
     if (what === 'playlist' || what === 'all') {
       // Les filtres d'abord : ils désignent des groupes de l'ancienne liste.
-      for (const id of Object.keys((server.settings || {}).filter || {})) server = await tf.saveFilter({ [id]: { delete: true } });
+      server = await dropFilters(server, Object.keys((server.settings || {}).filter || {}));
       for (const id of Object.keys(files.m3u || {})) server = await tf.deleteM3U(id);
       await fsp.unlink(FEED_FILE).catch(() => {});
       state.subscription = '';

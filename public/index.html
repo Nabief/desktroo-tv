@@ -197,8 +197,11 @@ function families() {
 }
 
 function stepChannels() {
+  // Déjà installé : on recoche le choix en place, pour qu'ajouter un groupe soit un seul clic.
+  // Première fois : on propose les groupes français, que l'on décoche au besoin.
+  var deja = (S.chosen || []);
   var list = groups.length ? groups.map(function (g, i) {
-    var pre = /fr|franc/i.test(g.name);
+    var pre = deja.length ? deja.indexOf(g.name) !== -1 : /fr|franc/i.test(g.name);
     return '<label><input type="checkbox" value="' + esc(g.name) + '"' + (pre ? ' checked' : '') + '> ' +
       '<span>' + esc(g.name) + '</span><span class="n">' + g.count + '</span></label>';
   }).join('')
@@ -221,7 +224,7 @@ function stepChannels() {
     }).join('')}</div>` : ''}
     <div class="tv-groups" id="groups">${list}</div>
     <div class="tv-field" style="margin-top:14px">
-      <label><input type="checkbox" id="hdOnly"> Garder seulement la version HD de chaque chaîne (sinon : HD, SD, HEVC et 4K, au choix dans l'appli)</label>
+      <label><input type="checkbox" id="hdOnly"${S.hdOnly ? ' checked' : ''}> Garder seulement la version HD de chaque chaîne (sinon : HD, SD, HEVC et 4K, au choix dans l'appli)</label>
     </div>
     <div class="tv-row">
       ${groups.length ? '<button class="dk-btn" id="all" data-label="Tout cocher">Tout cocher</button>' +

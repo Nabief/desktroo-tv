@@ -505,6 +505,11 @@ async function apiState() {
     playlist: m3u,
     groups: server ? groupsOf(server) : [],
     filters: Object.keys(settings.filter || {}).map((k) => settings.filter[k].name),
+    // Noms exacts des groupes retenus : l'écran ② s'en sert pour recocher le choix en place,
+    // afin qu'ajouter un groupe n'oblige pas à tout refaire.
+    chosen: Object.keys(settings.filter || {}).map((k) => String(settings.filter[k].filter || '')).filter(Boolean),
+    hdOnly: Object.keys(settings.filter || {}).every((k) => String(settings.filter[k].include || '') === 'HD')
+      && Object.keys(settings.filter || {}).length > 0,
     channels: values.length,
     withGuide: withGuide,
     guides: xmltv,

@@ -35,6 +35,10 @@
     border-radius: var(--radius-sm); background: #11151c; }
   .tv-note { margin-top: 18px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
   .tv-done { font-size: 15px; }
+  /* Marque du fournisseur : carré orange, « FLUX » puis « TV ». */
+  .tv-flux { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; letter-spacing: .5px; }
+  .tv-flux .sq { width: 11px; height: 11px; border-radius: 3px; background: #f59e0b; }
+  .tv-flux .tv { color: #f59e0b; }
 </style>
 </head>
 <body>
@@ -69,6 +73,14 @@
 var S = {};            // dernier état connu du serveur
 var groups = [];       // groupes de la liste de lecture
 var step = '1';
+
+/** Marque du fournisseur, écrite avec la police de l'app. */
+function flux() {
+  var n = String(S.siteName || 'FluxTV');
+  var m = /^(.*?)(TV)$/i.exec(n);
+  return '<span class="tv-flux"><span class="sq"></span>' + esc(m ? m[1].toUpperCase() : n.toUpperCase()) +
+    (m ? '<span class="tv">' + esc(m[2].toUpperCase()) + '</span>' : '') + '</span>';
+}
 
 function el(html) { var d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -112,7 +124,7 @@ function stepSubscription() {
     </div>
     <div class="tv-row">
       <button class="dk-btn primary" id="go" data-label="Vérifier et continuer">Vérifier et continuer</button>
-      <a class="dk-btn" href="https://${S.site}" target="_blank" rel="noopener">Pas d'abonnement ? ${S.siteName}</a>
+      <a class="dk-btn" href="https://${S.site}" target="_blank" rel="noopener">Pas d'abonnement ? ${flux()}</a>
     </div>
     <div class="tv-msg" id="m"></div>
     <p class="tv-note">${S.subscriptionUrl ? 'Adresse enregistrée : ' + esc(S.subscriptionUrl) +

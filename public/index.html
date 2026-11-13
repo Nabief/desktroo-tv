@@ -108,14 +108,15 @@ function stepSubscription() {
       Elle ressemble à <code>http://serveur/get.php?username=…&amp;password=…</code>. Elle ne sort pas de votre NAS.</p>
     <div class="tv-field">
       <label for="url">Adresse de la liste de lecture</label>
-      <input class="dk-input" id="url" placeholder="http://…/get.php?username=…&amp;password=…" value="">
+      <input class="dk-input" id="url" placeholder="${S.subscriptionUrl ? 'Adresse enregistrée : laissez vide pour la garder' : 'http://…/get.php?username=…&amp;password=…'}" value="">
     </div>
     <div class="tv-row">
       <button class="dk-btn primary" id="go" data-label="Vérifier et continuer">Vérifier et continuer</button>
       <a class="dk-btn" href="https://${S.site}" target="_blank" rel="noopener">Pas d'abonnement ? ${S.site}</a>
     </div>
     <div class="tv-msg" id="m"></div>
-    <p class="tv-note">Déjà réglée : ${S.subscriptionUrl ? esc(S.subscriptionUrl) : '—'}</p>
+    <p class="tv-note">${S.subscriptionUrl ? 'Adresse enregistrée : ' + esc(S.subscriptionUrl) +
+      '. Laissez le champ vide pour la garder, ou collez-en une autre.' : 'Aucune adresse enregistrée pour le moment.'}</p>
   </div>`;
 }
 

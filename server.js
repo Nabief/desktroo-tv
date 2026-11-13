@@ -345,8 +345,11 @@ async function routes(req, res, url, user) {
   // 1. Abonnement : on vérifie l'adresse avant de l'enregistrer.
   if (p === '/api/subscription' && req.method === 'POST') {
     const b = await body(req);
-    const sub = await subscription(b.url);
-    state.subscription = String(b.url).trim();
+    // Champ laissé vide : on reprend l'adresse déjà enregistrée (elle contient un mot de passe, on ne la réaffiche pas).
+    const url = String(b.url || '').trim() || state.subscription;
+    if (!url) throw fail("Collez l'adresse de votre liste de lecture.");
+    const sub = await subscription(url);
+    state.subscription = url;
     await saveState();
     return json(res, 200, sub);
   }

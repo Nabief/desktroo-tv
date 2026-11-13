@@ -371,7 +371,7 @@ async function routes(req, res, url, user) {
     const before = await tf.state();
     const existing = Object.keys(((before.settings || {}).files || {}).m3u || {})[0] || '';
     const tuner = Math.max(1, Math.min(10, Number(b.tuner) || 1));
-    const after = await tf.saveM3U(existing, 'Ma liste', u, tuner, !!existing);
+    const after = await tf.saveM3U(existing, 'Ma liste', u, tuner);
     state.subscription = u;
     await saveState();
     const groups = groupsOf(after);
@@ -402,7 +402,7 @@ async function routes(req, res, url, user) {
     const name = b.url ? 'Guide du fournisseur' : 'Guide France (xmltvfr.fr)';
     const files = ((server.settings || {}).files || {}).xmltv || {};
     const existing = Object.keys(files).find((id) => files[id]['file.source'] === wanted) || '';
-    server = await tf.saveXMLTV(existing, name, wanted, !!existing);
+    server = await tf.saveXMLTV(existing, name, wanted);
     const guide = guideFileOf(server, name);
     if (!guide) throw fail("Le guide n'a pas été enregistré.");
     const mapped = mapChannels(server, guide.file);

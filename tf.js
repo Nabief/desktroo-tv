@@ -184,18 +184,26 @@ async function state() {
 
 // ---------------------------------------------------------------- Raccourcis utiles
 
-/** Enregistre (ou remplace) la liste de lecture et lance sa mise à jour. [id] vide = nouvelle liste. */
-function saveM3U(id, name, url, tuner, update) {
-  const files = { m3u: {} };
-  files.m3u[id || '-'] = { name: name, description: '', 'file.source': url, tuner: Number(tuner) || 1, 'http_proxy.ip': '', 'http_proxy.port': '' };
-  return cmd(update ? 'updateFileM3U' : 'saveFilesM3U', { files: files });
+/**
+ * Enregistre la liste de lecture et la télécharge. [id] vide = nouvelle liste.
+ *
+ * Deux commandes sont nécessaires pour une liste déjà connue : « save » change l'adresse enregistrée
+ * sans rien télécharger, « update » télécharge mais en ignorant ce qu'on lui envoie. L'une puis l'autre,
+ * sinon changer l'adresse recharge l'ancienne.
+ */
+async function saveM3U(id, name, url, tuner) {
+  const entry = { name: name, description: '', 'file.source': url, tuner: Number(tuner) || 1, 'http_proxy.ip': '', 'http_proxy.port': '' };
+  const saved = await cmd('saveFilesM3U', { files: { m3u: { [id || '-']: entry } } });
+  if (!id) return saved;                                   // nouvelle liste : déjà téléchargée
+  return cmd('updateFileM3U', { files: { m3u: { [id]: entry } } });
 }
 
-/** Enregistre (ou remplace) une source de guide XMLTV. */
-function saveXMLTV(id, name, url, update) {
-  const files = { xmltv: {} };
-  files.xmltv[id || '-'] = { name: name, description: '', 'file.source': url, 'http_proxy.ip': '', 'http_proxy.port': '' };
-  return cmd(update ? 'updateFileXMLTV' : 'saveFilesXMLTV', { files: files });
+/** Enregistre une source de guide XMLTV et la télécharge (même raison que ci-dessus). */
+async function saveXMLTV(id, name, url) {
+  const entry = { name: name, description: '', 'file.source': url, 'http_proxy.ip': '', 'http_proxy.port': '' };
+  const saved = await cmd('saveFilesXMLTV', { files: { xmltv: { [id || '-']: entry } } });
+  if (!id) return saved;
+  return cmd('updateFileXMLTV', { files: { xmltv: { [id]: entry } } });
 }
 
 const saveSettings = (settings) => cmd('saveSettings', { settings: settings });

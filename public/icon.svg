@@ -1,6 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Desktroo TV">
-  <rect x="6" y="16" width="52" height="34" rx="7" fill="none" stroke="#e9eef7" stroke-width="4"/>
-  <path d="M22 16 32 7l10 9" fill="none" stroke="#3ecf8e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M26 26v14l13-7z" fill="#3ecf8e"/>
-  <path d="M20 56h24" stroke="#e9eef7" stroke-width="4" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Desktroo TV">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3ecf8e"/>
+      <stop offset="1" stop-color="#0e9f6e"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#g)"/>
+  <path d="M23 15.5 32 23l9-7.5" fill="none" stroke="#ffffff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+  <rect x="11" y="23" width="42" height="29" rx="6" fill="#ffffff"/>
+  <path d="M28 32.5 38.5 38 28 43.5z" fill="#0e9f6e"/>
 </svg>

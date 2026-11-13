@@ -3,6 +3,7 @@ name: Publier l'image
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:        # essai de construction sans publier de version
 permissions:
   contents: read
   packages: write
@@ -18,15 +19,23 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Sur étiquette : les deux architectures et l'image définitive. À la main : un simple essai, en amd64.
+      - id: cible
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tags=ghcr.io/nabief/desktroo-tv:${{ github.ref_name }},ghcr.io/nabief/desktroo-tv:latest" >> $GITHUB_OUTPUT
+            echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
+          else
+            echo "tags=ghcr.io/nabief/desktroo-tv:test" >> $GITHUB_OUTPUT
+            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
+          fi
       - id: build
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.cible.outputs.platforms }}
           push: true
-          tags: |
-            ghcr.io/nabief/desktroo-tv:${{ github.ref_name }}
-            ghcr.io/nabief/desktroo-tv:latest
+          tags: ${{ steps.cible.outputs.tags }}
       - name: Empreinte pour le catalogue
         run: |
           echo "### Image publiée" >> $GITHUB_STEP_SUMMARY

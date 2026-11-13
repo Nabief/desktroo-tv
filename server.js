@@ -662,6 +662,17 @@ const ENGINE_PATCH = '<script>(function(){' +
   'Patched.prototype=Native.prototype;Patched.CONNECTING=0;Patched.OPEN=1;Patched.CLOSING=2;Patched.CLOSED=3;' +
   'window.WebSocket=Patched;})();</script>';
 
+// En-têtes qui ne valent que d'un bout à l'autre d'une connexion : les recopier d'une réponse à
+// l'autre produit un message incohérent (une longueur annoncée en même temps qu'un envoi par
+// morceaux), que le serveur de Desktroo refuse — et l'écran affiche « l'app ne répond pas ».
+const HOP = ['transfer-encoding', 'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+  'te', 'trailer', 'upgrade', 'content-length', 'content-encoding'];
+function passThrough(headers) {
+  const out = Object.assign({}, headers);
+  for (const h of HOP) delete out[h];
+  return out;
+}
+
 /** Interface complète de Threadfin, pour les réglages fins (sous /engine/). */
 function proxyEngine(req, res, url) {
   const target = url.pathname.replace(/^\/engine/, '') + url.search;
@@ -669,7 +680,10 @@ function proxyEngine(req, res, url) {
     headers: Object.assign({}, req.headers, { host: tf.host() + ':' + tf.PORT }) }, (r) => {
     const html = /text\/html/i.test(String(r.headers['content-type'] || ''));
     if (!html) {
-      res.writeHead(r.statusCode, Object.assign({}, r.headers, HEADERS));
+      const head = Object.assign(passThrough(r.headers), HEADERS);
+      if (r.headers['content-length']) head['content-length'] = r.headers['content-length'];
+      if (r.headers['content-encoding']) head['content-encoding'] = r.headers['content-encoding'];
+      res.writeHead(r.statusCode, head);
       return r.pipe(res);
     }
     const chunks = [];
@@ -678,9 +692,7 @@ function proxyEngine(req, res, url) {
       let page = Buffer.concat(chunks).toString('utf8');
       page = /<head[^>]*>/i.test(page) ? page.replace(/<head[^>]*>/i, (m) => m + ENGINE_PATCH) : ENGINE_PATCH + page;
       const body = Buffer.from(page, 'utf8');
-      const head = Object.assign({}, r.headers, HEADERS, { 'content-length': body.length });
-      delete head['content-encoding'];
-      res.writeHead(r.statusCode, head);
+      res.writeHead(r.statusCode, Object.assign(passThrough(r.headers), HEADERS, { 'content-length': body.length }));
       res.end(body);
     });
   });

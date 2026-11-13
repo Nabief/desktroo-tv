@@ -4,8 +4,14 @@ La TV en direct de bout en bout, en quatre écrans : l'app installe le moteur, r
 puis déclare le tout dans Jellyfin. Installée depuis Desktroo Apps, les apps de [Desktroo](https://desktroo.fr).
 
 - **Moteur** : [Threadfin](https://github.com/Threadfin/Threadfin) (MIT), compilé depuis sa source à la version
-  indiquée dans le `Dockerfile`, **sans modification**, lancé par l'app sur son port interne 34400. Sa licence est
-  livrée dans l'image (`/app/THREADFIN-LICENSE`). Desktroo n'est ni affilié au projet Threadfin ni soutenu par lui.
+  indiquée dans le `Dockerfile`, avec **un seul correctif** (décrit dans le `Dockerfile`), lancé par l'app sur son
+  port interne 34400. Sa licence est livrée dans l'image (`/app/THREADFIN-LICENSE`). Desktroo n'est ni affilié au
+  projet Threadfin ni soutenu par lui.
+- **Liste de lecture** : l'app télécharge elle-même la liste du fournisseur, écarte les films et les séries à la
+  demande, et ne donne au moteur que les chaînes en direct, par une adresse interne au conteneur. Une liste de
+  300 Mo tombe ainsi à quelques Mo : le chargement passe de plusieurs minutes à quelques secondes, et le nombre de
+  chaînes trouvées est affiché. Chaque flux reçoit un identifiant de guide distinct, sans quoi le moteur confond
+  les versions d'une même chaîne (HD et FHD) et en perd une.
 - **Assistant** (`public/index.html`) : ① abonnement, ② chaînes, ③ guide, ④ Jellyfin, puis une page de vérification.
   Rien à saisir dans Threadfin : l'app le pilote par la même liaison que son interface web (`tf.js`, WebSocket maison,
   sans dépendance).
@@ -26,17 +32,18 @@ puis déclare le tout dans Jellyfin. Installée depuis Desktroo Apps, les apps d
 ## Mettre à jour le moteur
 
 Changer `THREADFIN_VERSION` dans le `Dockerfile` (une étiquette de https://github.com/Threadfin/Threadfin/tags),
-puis publier une version de l'app.
+puis publier une version de l'app. La compilation échoue si la ligne visée par le correctif a disparu de la
+nouvelle version : vérifier alors si le bug est corrigé en amont et retirer le correctif, ou le replacer.
 
 ## Essai local
 
 ```
-node test/fake-provider.js &                  # faux fournisseur : liste, guide et état du compte
+node test/fake-provider.js 9999 big &         # faux fournisseur ; « big » ajoute 60 000 films et séries (> 10 Mo)
 DESKTROO_APP_SECRET=zz DATA_DIR=/tmp/dt node server.js
 curl -H X-Desktroo-Secret:zz -H X-Desktroo-User:moi localhost:8080/api/state
 ```
 
-Le moteur doit être disponible en `/app/threadfin` (ou lancé à part sur le port 34400).
+Le moteur doit être disponible en `/app/threadfin`, ou ailleurs en le désignant par `ENGINE_BIN`.
 
 ## Publier une version
 

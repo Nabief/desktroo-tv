@@ -11,9 +11,18 @@ const CH = [
 ];
 // Le port 9998 sert une liste plus courte : de quoi vérifier qu'un changement d'adresse est bien pris.
 const LIST = () => (PORT === 9999 ? CH : CH.slice(0, 4));
+// « big » ajoute des dizaines de milliers de films et de séries, comme un vrai fournisseur : la liste
+// dépasse alors 10 Mo, le seuil au-delà duquel le lecteur de listes du moteur basculait dans son
+// chemin cassé. De quoi vérifier le correctif et le tri de Desktroo TV.
+const BIG = process.argv.includes('big') ? 60000 : 0;
 const m3u = () => '#EXTM3U\n' + LIST().map(([name, id, grp], i) =>
   '#EXTINF:-1 tvg-id="' + id + '" tvg-name="' + name + '" tvg-chno="' + (100 + i) + '" group-title="' + grp + '",' + name +
-  '\nhttp://127.0.0.1:' + PORT + '/live/' + i + '.ts').join('\n') + '\n';
+  '\nhttp://127.0.0.1:' + PORT + '/live/' + i + '.ts').join('\n') + '\n' +
+  Array.from({ length: BIG }, (_, i) =>
+    '#EXTINF:-1 tvg-id="" tvg-name="Film numéro ' + i + '" tvg-logo="http://127.0.0.1:' + PORT + '/img/' + i +
+    '.jpg" group-title="VOD | FILMS ' + (i % 40) + '",Film numéro ' + i + ' (2026) VF multi audio\n' +
+    'http://127.0.0.1:' + PORT + (i % 2 ? '/movie' : '/series') + '/demo/demo/' + i + '.mkv').join('\n') +
+  (BIG ? '\n' : '');
 const xmltv = () => {
   const d = new Date(), p = (n) => String(n).padStart(2, '0');
   const stamp = (h) => d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + p(h) + '0000 +0100';

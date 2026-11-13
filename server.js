@@ -19,6 +19,7 @@ const { spawn } = require('child_process');
 const { URL } = require('url');
 const tf = require('./tf');
 const jf = require('./jellyfin');
+const feed = require('./feed');
 
 const PORT = 8080;
 const SECRET = process.env.DESKTROO_APP_SECRET || '';
@@ -26,6 +27,7 @@ const APP_ID = process.env.DESKTROO_APP_ID || 'tv';
 const DATA = process.env.DATA_DIR || '/data';
 const CONF = path.join(DATA, 'conf');
 const STATE_FILE = path.join(DATA, 'state.json');
+const FEED_FILE = path.join(DATA, 'playlist.m3u');
 const PUB = path.join(__dirname, 'public');
 const FREE_GUIDE = 'https://xmltvfr.fr/xmltv/xmltv_fr.xml.gz';
 const SITE = 'nabief.xyz';          // où se réabonner
@@ -77,7 +79,8 @@ function body(req, max) {
 
 // ---------------------------------------------------------------- Mémoire de l'app
 
-let state = { subscription: '', jellyfin: { url: '', key: '' }, done: false };
+let state = { subscription: '', jellyfin: { url: '', key: '' }, done: false,
+  feed: { token: '', digest: '', total: 0, kept: 0, vod: 0, at: 0 } };
 async function loadState() {
   try { state = Object.assign(state, JSON.parse(await fsp.readFile(STATE_FILE, 'utf8'))); } catch (_) { /* premier démarrage */ }
 }
@@ -93,7 +96,8 @@ let engine = null;
 let engineLog = [];
 function startEngine() {
   fs.mkdirSync(CONF, { recursive: true });
-  engine = spawn('/app/threadfin', ['-port', String(tf.PORT), '-config', CONF], { stdio: ['ignore', 'pipe', 'pipe'] });
+  engine = spawn(process.env.ENGINE_BIN || '/app/threadfin', ['-port', String(tf.PORT), '-config', CONF],
+    { stdio: ['ignore', 'pipe', 'pipe'] });
   const keep = (buf) => {
     engineLog = engineLog.concat(String(buf).split('\n').filter(Boolean)).slice(-200);
   };
@@ -314,6 +318,114 @@ function guideFileOf(server, name) {
   return null;
 }
 
+// ---------------------------------------------------------------- Liste de lecture servie au moteur
+
+function feedToken() {
+  if (!state.feed.token) state.feed.token = crypto.randomBytes(16).toString('hex');
+  return state.feed.token;
+}
+/** Adresse interne au conteneur : le moteur tourne ici même, le fichier ne sort pas sur le réseau. */
+const feedUrl = () => 'http://127.0.0.1:' + PORT + '/feed/' + feedToken() + '/playlist.m3u';
+
+let feeding = null;
+/** Télécharge la liste du fournisseur (une seule à la fois) et retient ses compteurs. */
+function refreshFeed(source) {
+  if (feeding) return feeding;
+  const src = String(source || state.subscription || '');
+  if (!src) return Promise.reject(fail('Adresse de la liste manquante.'));
+  feeding = (async () => {
+    const r = await feed.download(src, FEED_FILE);
+    state.feed = Object.assign({ token: feedToken() }, r, { at: Date.now() });
+    await saveState();
+    console.log('[tv] liste : ' + r.kept + ' chaînes en direct, ' + r.vod + ' films/séries écartés');
+    return r;
+  })();
+  feeding.catch(() => {}).then(() => { feeding = null; });
+  return feeding;
+}
+
+/**
+ * Déclare la liste dans le moteur, ou la lui fait relire. L'adresse donnée au moteur ne change jamais
+ * (c'est celle de cette app), si bien que les chaînes gardent leur numéro et leur programme d'une
+ * relecture à l'autre : seules les chaînes réellement nouvelles sont ajoutées, et celles qui ont
+ * disparu de la liste sont retirées.
+ */
+async function installPlaylist(tuner) {
+  const before = await tf.state();
+  const files = ((before.settings || {}).files || {}).m3u || {};
+  const u = feedUrl();
+  const existing = Object.keys(files).find((id) => files[id]['file.source'] === u) || '';
+  const n = Math.max(1, Math.min(10, Number(tuner) || Number(files[existing] && files[existing].tuner) || 1));
+  for (const id of Object.keys(files)) {
+    if (id !== existing) await tf.deleteM3U(id);      // liste d'une version précédente ou d'une autre adresse
+  }
+  // Première fois : le moteur télécharge la liste et construit sa base de chaînes dans le même geste.
+  if (!existing) return tf.saveM3U('', 'Ma liste', u, n);
+  const after = await tf.saveM3U(existing, 'Ma liste', u, n);   // relit le fichier
+  return activate(await rebuild(after));
+}
+
+/**
+ * Refait la base des chaînes du moteur à partir du fichier relu : il ne le fait pas de lui-même après
+ * une relecture, et son interface de commande n'a pas d'ordre pour cela. Réécrire un filtre à
+ * l'identique déclenche exactement ce travail — reconstruction et retrait des chaînes disparues.
+ */
+async function rebuild(server) {
+  const f = (server.settings || {}).filter || {};
+  const id = Object.keys(f)[0];
+  if (id === undefined) return server;                // pas encore de chaînes choisies : rien à refaire
+  return tf.saveFilter({ [id]: f[id] });
+}
+
+/**
+ * Rend visibles toutes les chaînes retenues. Le moteur crée ses chaînes désactivées, et il refuse
+ * alors de mettre à jour leur adresse à la construction suivante : deux versions d'une même chaîne
+ * (HD et FHD) peuvent finir confondues, et l'une des deux disparaît. Les activer tout de suite
+ * supprime ce cas. Sans guide encore choisi, elles reçoivent la grille de remplacement du moteur.
+ */
+async function activate(server) {
+  const mapping = ((server.xepg || {}).epgMapping) || {};
+  const keys = Object.keys(mapping);
+  if (!keys.length) return server;
+  const guide = guideFileOf(server, null);
+  if (guide) return remap(server);
+  let n = 0;
+  for (const k of keys) {
+    const v = mapping[k];
+    if (!v['x-active']) { v['x-active'] = true; n++; }
+    if (!v['x-xmltv-file'] || v['x-xmltv-file'] === '-') {
+      v['x-xmltv-file'] = 'Threadfin Dummy';
+      v['x-mapping'] = '120_Minutes';
+      n++;
+    }
+  }
+  return n ? tf.saveEpgMapping(mapping) : server;
+}
+
+/** Réassocie le guide comme à l'écran ④, pour que les chaînes nouvellement apparues aient leur programme. */
+async function remap(server) {
+  const guide = guideFileOf(server, null);
+  if (!guide) return server;
+  const mapped = mapChannels(server, guide.file);
+  if (!mapped.total) return server;
+  return tf.saveEpgMapping(mapped.mapping);
+}
+
+/** Fichier servi au moteur seul : même conteneur (boucle locale) et jeton de cette installation. */
+function serveFeed(req, res, url) {
+  const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  if (ip !== '127.0.0.1' && ip !== '::1') return send(res, 403, 'Accès refusé.');
+  if (!safeEq(url.pathname.split('/')[2], state.feed.token)) return send(res, 403, 'Accès refusé.');
+  let st;
+  try { st = fs.statSync(FEED_FILE); } catch (_) { return send(res, 404, "Liste pas encore téléchargée."); }
+  // Le moteur revient la chercher chaque nuit : on lui sert la dernière connue et on en prépare une
+  // neuve en fond, pour ne pas le faire attendre plusieurs minutes de téléchargement.
+  if (Date.now() - st.mtimeMs > 3600000) refreshFeed().catch(() => {});
+  res.writeHead(200, Object.assign({ 'Content-Type': 'application/x-mpegurl', 'Content-Length': st.size,
+    'Cache-Control': 'no-store' }, HEADERS));
+  fs.createReadStream(FEED_FILE).pipe(res);
+}
+
 // ---------------------------------------------------------------- Routes de l'assistant
 
 async function apiState() {
@@ -337,6 +449,7 @@ async function apiState() {
     withGuide: withGuide,
     guides: xmltv,
     subscriptionUrl: state.subscription ? state.subscription.replace(/password=[^&]*/i, 'password=••••') : '',
+    feed: { live: state.feed.kept || 0, vod: state.feed.vod || 0, at: state.feed.at || 0 },
     jellyfin: { url: state.jellyfin.url, linked: !!state.jellyfin.key },
     tunerUrl: TUNER_URL,
     guideUrl: TUNER_URL + '/xmltv/threadfin.xml',
@@ -362,30 +475,24 @@ async function routes(req, res, url, user) {
     return json(res, 200, sub);
   }
 
-  // 2. Liste de lecture : enregistrée dans le moteur, puis lue (les groupes servent à l'écran suivant).
+  // 2. Liste de lecture : téléchargée ici, débarrassée des films et séries, puis donnée au moteur.
   if (p === '/api/playlist' && req.method === 'POST') {
     const b = await body(req);
     const u = String(b.url || state.subscription || '').trim();
     if (!u) throw fail('Adresse de la liste manquante.');
     providerUrl(u);                                   // même contrôle que pour l'abonnement
-    const before = await tf.state();
-    const files = ((before.settings || {}).files || {}).m3u || {};
-    const existing = Object.keys(files)[0] || '';
-    const tuner = Math.max(1, Math.min(10, Number(b.tuner) || 1));
-    // Changement d'adresse : on repart d'une liste neuve. Mettre à jour celle d'avant téléchargerait
-    // bien le nouveau fichier, mais le moteur garderait les chaînes de l'ancienne en mémoire.
-    if (existing && files[existing]['file.source'] !== u) await tf.deleteM3U(existing);
-    const after = await tf.saveM3U(files[existing] && files[existing]['file.source'] === u ? existing : '', 'Ma liste', u, tuner);
     state.subscription = u;
     await saveState();
+    const info = await refreshFeed(u);
+    const after = await installPlaylist(b.tuner);
     const groups = groupsOf(after);
     const streams = (((after.data || {}).StreamPreviewUI || {}).inactiveStreams || []).length +
       (((after.data || {}).StreamPreviewUI || {}).activeStreams || []).length;
     if (!streams) {
-      throw fail("Le fichier reçu ne contient aucune chaîne. Vérifiez qu'il s'agit bien de l'adresse de la liste " +
-        "(« …/get.php?username=…&password=…&type=m3u_plus ») et que l'abonnement est actif.");
+      throw fail("Le moteur n'a retenu aucune chaîne des " + info.kept + " reçues. Réessayez avec « Relire la liste » ; " +
+        "si cela se reproduit, le journal du moteur (écran Vérification) en donne la raison.");
     }
-    return json(res, 200, { groups: groups, streams: streams });
+    return json(res, 200, { groups: groups, streams: streams, live: info.kept, vod: info.vod, total: info.total });
   }
 
   // 3. Chaînes : un filtre par groupe choisi.
@@ -393,7 +500,11 @@ async function routes(req, res, url, user) {
     const b = await body(req);
     const groups = Array.isArray(b.groups) ? b.groups.map(String) : [];
     if (!groups.length) throw fail('Choisissez au moins un groupe de chaînes.');
-    const server = await makeFilters(groups, { hdOnly: !!b.hdOnly, exclude: b.exclude });
+    let server = await makeFilters(groups, { hdOnly: !!b.hdOnly, exclude: b.exclude });
+    server = await activate(server);
+    // Une version d'une chaîne a pu être confondue avec une autre pendant la construction : une
+    // reconstruction, chaînes actives cette fois, la recrée.
+    server = await activate(await rebuild(server));
     const mapping = ((server || {}).xepg || {}).epgMapping || {};
     return json(res, 200, { channels: Object.keys(mapping).length });
   }
@@ -500,6 +611,7 @@ const server = http.createServer(async (req, res) => {
   let url;
   try { url = new URL(req.url, 'http://localhost'); } catch (_) { return send(res, 400, 'Requête invalide.'); }
   if (url.pathname === '/healthz') return send(res, 200, 'ok');
+  if (url.pathname.startsWith('/feed/')) return serveFeed(req, res, url);
   const user = identity(req);
   if (!user) return send(res, 403, 'Accès refusé.');
   try {
@@ -583,6 +695,12 @@ server.on('upgrade', (req, socket, head) => {
     await tf.ready(120);
     await engineDefaults();
     console.log('[tv] moteur réglé');
+    // La liste est retéléchargée régulièrement ; le moteur n'est refait que si son contenu a bougé.
+    setInterval(() => {
+      if (!state.subscription) return;
+      const was = state.feed.digest;
+      refreshFeed().then((r) => (r.digest === was ? null : installPlaylist(0))).catch(() => {});
+    }, 6 * 3600 * 1000);
   } catch (e) {
     console.error('[tv] moteur :', e.message);
   }

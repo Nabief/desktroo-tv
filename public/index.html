@@ -302,14 +302,17 @@ function wire() {
         say('m', line + '<p>Chargement de la liste…</p>', sub.active ? 'ok' : 'err');
         busy(go, true, 'Chargement de la liste…');
         wait(true, 'Lecture de votre liste de chaînes…',
-          'Une grosse liste (plusieurs dizaines de milliers de flux) demande une à deux minutes. Laissez cette fenêtre ouverte.');
+          'La liste est téléchargée, puis débarrassée des films et des séries pour ne garder que la TV en direct. ' +
+          'Comptez une à deux minutes sur une grosse liste ; laissez cette fenêtre ouverte.');
         var res = await api('api/playlist', { url: url.value, tuner: sub.maxConnections });
         groups = res.groups || [];
-        say('m', line + '<p class="ok">' + res.streams + ' flux reçus, ' + groups.length + ' groupes. Passez aux chaînes.</p>', 'ok');
+        say('m', line + '<p class="ok">' + res.live + ' chaînes en direct' +
+          (res.vod ? ' (' + res.vod + ' films et séries écartés)' : '') + ', ' + groups.length +
+          ' groupes. Passez aux chaînes.</p>', 'ok');
         show('2');
       } catch (e) {
-        say('m', esc(e.message) + '<br><span class="dk-muted">Si l\'app s\'est relancée pendant la lecture, c\'est la mémoire : ' +
-          'augmentez-la dans Desktroo Apps, puis reprenez ici.</span>', 'err');
+        say('m', esc(e.message) + '<br><span class="dk-muted">Le journal du moteur, à l\'écran Vérification, ' +
+          'dit ce qui s\'est passé.</span>', 'err');
       }
       wait(false);
       busy(go, false);
@@ -324,11 +327,12 @@ function wire() {
       reload.dataset.label = reload.textContent;
       reload.onclick = async function () {
         busy(reload, true, 'Lecture de la liste…');
-        wait(true, 'Lecture de votre liste de chaînes…', 'Une à deux minutes sur une grosse liste.');
+        wait(true, 'Lecture de votre liste de chaînes…', 'Téléchargement puis tri : une à deux minutes sur une grosse liste.');
         try {
           var r = await api('api/playlist', {});
           groups = r.groups || [];
-          say('m', r.streams + ' flux, ' + groups.length + ' groupes.', 'ok');
+          say('m', r.live + ' chaînes en direct' + (r.vod ? ' (' + r.vod + ' films et séries écartés)' : '') +
+            ', ' + groups.length + ' groupes.', 'ok');
           show('2');
         } catch (e) { say('m', esc(e.message), 'err'); busy(reload, false); }
         wait(false);

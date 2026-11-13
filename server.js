@@ -369,9 +369,13 @@ async function routes(req, res, url, user) {
     if (!u) throw fail('Adresse de la liste manquante.');
     providerUrl(u);                                   // même contrôle que pour l'abonnement
     const before = await tf.state();
-    const existing = Object.keys(((before.settings || {}).files || {}).m3u || {})[0] || '';
+    const files = ((before.settings || {}).files || {}).m3u || {};
+    const existing = Object.keys(files)[0] || '';
     const tuner = Math.max(1, Math.min(10, Number(b.tuner) || 1));
-    const after = await tf.saveM3U(existing, 'Ma liste', u, tuner);
+    // Changement d'adresse : on repart d'une liste neuve. Mettre à jour celle d'avant téléchargerait
+    // bien le nouveau fichier, mais le moteur garderait les chaînes de l'ancienne en mémoire.
+    if (existing && files[existing]['file.source'] !== u) await tf.deleteM3U(existing);
+    const after = await tf.saveM3U(files[existing] && files[existing]['file.source'] === u ? existing : '', 'Ma liste', u, tuner);
     state.subscription = u;
     await saveState();
     const groups = groupsOf(after);
@@ -402,6 +406,9 @@ async function routes(req, res, url, user) {
     const name = b.url ? 'Guide du fournisseur' : 'Guide France (xmltvfr.fr)';
     const files = ((server.settings || {}).files || {}).xmltv || {};
     const existing = Object.keys(files).find((id) => files[id]['file.source'] === wanted) || '';
+    // Une source sous le même nom mais d'une autre adresse : on la remplace plutôt que de la mettre à jour.
+    const stale = Object.keys(files).find((id) => files[id].name === name && files[id]['file.source'] !== wanted);
+    if (!existing && stale) await tf.deleteXMLTV(stale);
     server = await tf.saveXMLTV(existing, name, wanted);
     const guide = guideFileOf(server, name);
     if (!guide) throw fail("Le guide n'a pas été enregistré.");

@@ -9,7 +9,9 @@ const CH = [
   ['FR| BFM TV HD', 'BFMTV.fr', 'EU | FRANCE INFORMATION'], ['FR| CNEWS SD', 'CNews.fr', 'EU | FRANCE INFORMATION'],
   ['FR| GULLI HD', 'Gulli.fr', 'EU | FRANCE ENFANTS'], ['FR| CHAINE SANS GUIDE HD', '', 'EU | FRANCE ENFANTS'],
 ];
-const m3u = () => '#EXTM3U\n' + CH.map(([name, id, grp], i) =>
+// Le port 9998 sert une liste plus courte : de quoi vérifier qu'un changement d'adresse est bien pris.
+const LIST = () => (PORT === 9999 ? CH : CH.slice(0, 4));
+const m3u = () => '#EXTM3U\n' + LIST().map(([name, id, grp], i) =>
   '#EXTINF:-1 tvg-id="' + id + '" tvg-name="' + name + '" tvg-chno="' + (100 + i) + '" group-title="' + grp + '",' + name +
   '\nhttp://127.0.0.1:' + PORT + '/live/' + i + '.ts').join('\n') + '\n';
 const xmltv = () => {

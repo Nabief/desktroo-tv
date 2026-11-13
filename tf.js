@@ -206,9 +206,15 @@ async function saveXMLTV(id, name, url) {
   return cmd('updateFileXMLTV', { files: { xmltv: { [id]: entry } } });
 }
 
+/** Supprime une liste de lecture enregistrée (et son fichier local). */
+const deleteM3U = (id) => cmd('saveFilesM3U', { files: { m3u: { [id]: { delete: true } } } });
+
+/** Supprime une source de guide enregistrée. */
+const deleteXMLTV = (id) => cmd('saveFilesXMLTV', { files: { xmltv: { [id]: { delete: true } } } });
+
 const saveSettings = (settings) => cmd('saveSettings', { settings: settings });
 const saveFilter = (filter) => cmd('saveFilter', { filter: filter });
 const saveEpgMapping = (mapping) => cmd('saveEpgMapping', { epgMapping: mapping });
 
-module.exports = { cmd, ready, state, reach, saveM3U, saveXMLTV, saveSettings, saveFilter, saveEpgMapping,
+module.exports = { cmd, ready, state, reach, saveM3U, saveXMLTV, deleteM3U, deleteXMLTV, saveSettings, saveFilter, saveEpgMapping,
   host: () => HOST, PORT: PORT };

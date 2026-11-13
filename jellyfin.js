@@ -147,6 +147,28 @@ async function setGuide(base, token, url) {
   return request(base, 'LiveTv/ListingProviders?validateListings=false&validateLogin=false', { method: 'POST', token: token, body: body });
 }
 
+/**
+ * Tuners et sources de guide déclarés dans Jellyfin qui ne sont pas les nôtres. Un serveur venant
+ * d'une installation à la main en garde presque toujours un : ses chaînes s'ajoutent alors aux
+ * nôtres, et tout apparaît en double dans la TV en direct.
+ */
+async function others(base, token, tunerUrl, guideUrl) {
+  const same = (a, b) => String(a || '').replace(/\/+$/, '') === String(b || '').replace(/\/+$/, '');
+  const conf = await liveTvConfig(base, token);
+  return {
+    tuners: (conf.TunerHosts || []).filter((h) => !same(h.Url, tunerUrl))
+      .map((h) => ({ id: h.Id, label: h.FriendlyName || h.Url || h.Type, url: h.Url || '' })),
+    guides: (conf.ListingProviders || []).filter((p) => !same(p.Path, guideUrl))
+      .map((p) => ({ id: p.Id, label: p.Path || p.ListingsId || p.Type, url: p.Path || '' })),
+  };
+}
+
+/** Retire un tuner ou une source de guide de Jellyfin. */
+const dropTuner = (base, token, id) =>
+  request(base, 'LiveTv/TunerHosts?id=' + encodeURIComponent(id), { method: 'DELETE', token: token });
+const dropGuide = (base, token, id) =>
+  request(base, 'LiveTv/ListingProviders?id=' + encodeURIComponent(id), { method: 'DELETE', token: token });
+
 /** Lance l'actualisation du guide et rend vrai si la tâche a démarré. */
 async function refreshGuide(base, token) {
   const tasks = (await request(base, 'ScheduledTasks', { token: token })) || [];
@@ -169,4 +191,4 @@ async function guideRunning(base, token) {
   return !!(task && task.State && task.State !== 'Idle');
 }
 
-module.exports = { resolve, info, login, apiKey, setTuner, setGuide, refreshGuide, channelCount, guideRunning, request };
+module.exports = { resolve, others, dropTuner, dropGuide, info, login, apiKey, setTuner, setGuide, refreshGuide, channelCount, guideRunning, request };

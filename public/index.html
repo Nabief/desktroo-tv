@@ -34,6 +34,9 @@
   .tv-engine { width: 100%; height: calc(100vh - 160px); min-height: 420px; border: 1px solid var(--glass-border);
     border-radius: var(--radius-sm); background: #11151c; }
   .tv-note { margin-top: 18px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .tv-warn { margin-top: 14px; padding: 12px 14px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.6;
+    border: 1px solid var(--warning, #c08a2e); background: color-mix(in srgb, var(--warning, #c08a2e) 10%, transparent); }
+  .tv-warn .dk-btn { margin-top: 10px; }
   .tv-hint { margin: 0 0 6px; font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
   .tv-done { font-size: 15px; }
   .tv-log { margin-top: 16px; max-height: 320px; overflow: auto; padding: 12px 14px; border-radius: var(--radius-sm);
@@ -252,6 +255,36 @@ function stepApps() {
   </div>`;
 }
 
+/**
+ * Un serveur venant d'une installation à la main garde son ancien tuner : ses chaînes s'ajoutent aux
+ * nôtres et tout apparaît en double. On le dit, et on propose de l'enlever.
+ */
+function othersHtml(o) {
+  var l = ((o && o.tuners) || []).concat((o && o.guides) || []);
+  if (!l.length) return '';
+  return '<div class="tv-warn" id="others">Jellyfin reçoit déjà la TV en direct d\'ailleurs : <b>' +
+    l.map(function (x) { return esc(x.label); }).join('</b>, <b>') + '</b>.<br>' +
+    'Tant que cette source reste déclarée, chaque chaîne apparaît deux fois dans Jellyfin.' +
+    '<br><button class="dk-btn" id="drop" data-label="Enlever l\'ancienne source">Enlever l\'ancienne source</button></div>';
+}
+
+function bindOthers() {
+  var btn = document.getElementById('drop');
+  if (!btn) return;
+  btn.dataset.label = btn.textContent;
+  btn.onclick = async function () {
+    busy(btn, true, 'Retrait…');
+    try {
+      var r = await api('api/jellyfin/others', { remove: true });
+      var box = document.getElementById('others');
+      box.innerHTML = r.removed
+        ? 'Ancienne source retirée.' + (r.refreshing ? ' Jellyfin actualise son guide ; le compte de chaînes retombera dans quelques minutes.' : '')
+        : 'Rien à retirer.';
+      await load();
+    } catch (e) { say('m', esc(e.message), 'err'); busy(btn, false); }
+  };
+}
+
 function stepCheck() {
   return `
   <div class="tv-step">
@@ -395,7 +428,8 @@ function wire() {
         });
         document.getElementById('jpass').value = '';
         say('m', '<span class="tv-done">Terminé : ' + esc(r.server) + ' reçoit vos chaînes.' +
-          (r.refreshing ? ' Le guide se remplit, cela prend quelques minutes.' : '') + '</span>', 'ok');
+          (r.refreshing ? ' Le guide se remplit, cela prend quelques minutes.' : '') + '</span>' + othersHtml(r.others), 'ok');
+        bindOthers();
         if (window.desktroo) desktroo.notify('TV en direct installée', 'success');
         await load();
       } catch (e) { say('m', esc(e.message), 'err'); }
@@ -413,6 +447,8 @@ function wire() {
           return '<li><span class="ic">' + (c.ok ? '✅' : '⚠️') + '</span><div><b>' + esc(c.label) + '</b>' +
             (c.detail ? '<div class="d">' + esc(c.detail) + '</div>' : '') + '</div></li>';
         }).join('');
+        say('m', othersHtml(r.others), '');
+        bindOthers();
       } catch (e) { say('m', esc(e.message), 'err'); }
       busy(go, false);
     };

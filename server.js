@@ -545,12 +545,30 @@ async function routes(req, res, url, user) {
     state.jellyfin = { url: base, key: key };
     state.done = true;
     await saveState();
-    return json(res, 200, { server: (about && about.ServerName) || 'Jellyfin', version: (about && about.Version) || '', refreshing: started });
+    const rest = await jf.others(base, key, TUNER_URL, TUNER_URL + '/xmltv/threadfin.xml');
+    return json(res, 200, { server: (about && about.ServerName) || 'Jellyfin', version: (about && about.Version) || '',
+      refreshing: started, others: rest });
+  }
+
+  // Tuner ou guide d'une installation précédente : tant qu'ils restent, tout apparaît en double.
+  if (p === '/api/jellyfin/others' && req.method === 'POST') {
+    if (!state.jellyfin.key) throw fail("Reliez d'abord Jellyfin (écran ④).");
+    const b = await body(req);
+    const base = state.jellyfin.url, key = state.jellyfin.key;
+    const rest = await jf.others(base, key, TUNER_URL, TUNER_URL + '/xmltv/threadfin.xml');
+    if (!b.remove) return json(res, 200, { others: rest });
+    let n = 0;
+    for (const g of rest.guides) { if (g.id) { await jf.dropGuide(base, key, g.id); n++; } }
+    for (const t of rest.tuners) { if (t.id) { await jf.dropTuner(base, key, t.id); n++; } }
+    const started = n ? await jf.refreshGuide(base, key) : false;
+    return json(res, 200, { removed: n, refreshing: started,
+      others: await jf.others(base, key, TUNER_URL, TUNER_URL + '/xmltv/threadfin.xml') });
   }
 
   // Vérification de bout en bout, à relancer quand quelque chose cloche.
   if (p === '/api/check' && req.method === 'GET') {
     const out = [];
+    let others = { tuners: [], guides: [] };
     const add = (label, ok, detail) => out.push({ label: label, ok: !!ok, detail: detail || '' });
     let server = null;
     try { server = await tf.state(); add('Moteur TV démarré', true, 'Threadfin ' + ((server.clientInfo || {}).version || '')); }
@@ -580,10 +598,17 @@ async function routes(req, res, url, user) {
         const running = await jf.guideRunning(state.jellyfin.url, state.jellyfin.key);
         add('Chaînes visibles dans Jellyfin', count > 0, count + ' chaîne(s)' + (running ? ' · actualisation en cours' : ''));
       } catch (e) { add('Chaînes visibles dans Jellyfin', false, e.message); }
+      try {
+        const rest = await jf.others(state.jellyfin.url, state.jellyfin.key, TUNER_URL, TUNER_URL + '/xmltv/threadfin.xml');
+        others = rest;
+        const n = rest.tuners.length + rest.guides.length;
+        add('Pas d’autre tuner dans Jellyfin', n === 0, n === 0 ? 'cette app est la seule source de TV en direct'
+          : rest.tuners.concat(rest.guides).map((x) => x.label).join(', ') + ' — vos chaînes apparaissent en double');
+      } catch (_) { /* configuration illisible : rien à signaler */ }
     } else {
       add('Jellyfin relié', false, 'étape 4 de l’assistant');
     }
-    return json(res, 200, { checks: out });
+    return json(res, 200, { checks: out, others: others });
   }
 
   if (p === '/api/log' && req.method === 'GET') {

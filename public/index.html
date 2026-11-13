@@ -35,6 +35,17 @@
     border-radius: var(--radius-sm); background: #11151c; }
   .tv-note { margin-top: 18px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
   .tv-done { font-size: 15px; }
+  /* Attente des étapes longues : voile, anneau et explication. */
+  .tv-veil { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 20;
+    background: rgba(5, 9, 16, .62); backdrop-filter: blur(2px); }
+  .tv-veil.on { display: flex; }
+  [data-theme="light"] .tv-veil { background: rgba(230, 236, 246, .72); }
+  .tv-veil .box { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 30px;
+    border-radius: var(--radius); background: var(--surface); border: 1px solid var(--glass-border); max-width: 380px; text-align: center; }
+  .tv-ring { width: 34px; height: 34px; border: 3px solid rgba(var(--accent-rgb), .22); border-top-color: var(--accent);
+    border-radius: 50%; animation: tvspin .9s linear infinite; }
+  .tv-veil .t { font-weight: 600; }
+  .tv-veil .s { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
   /* Marque du fournisseur : carré orange, « FLUX » puis « TV ». */
   .tv-flux { display: inline-flex; align-items: center; gap: 7px; font-weight: 800; letter-spacing: .5px; }
   .tv-flux svg { width: 17px; height: 17px; flex-shrink: 0; }
@@ -42,6 +53,9 @@
 </style>
 </head>
 <body>
+<div class="tv-veil" id="veil" role="status" aria-live="polite">
+  <div class="box"><div class="tv-ring"></div><div class="t" id="veilT">Patientez…</div><div class="s" id="veilS"></div></div>
+</div>
 <div class="dk-shell">
   <nav class="dk-side" id="nav">
     <div class="dk-side-title">Installation</div>
@@ -104,6 +118,16 @@ async function api(path, body) {
   try { data = await r.json(); } catch (_) { data = null; }
   if (!r.ok) throw new Error((data && data.error) || ('Erreur ' + r.status));
   return data || {};
+}
+
+/** Voile d'attente : [title] ce qui se passe, [sub] pourquoi c'est long. */
+function wait(on, title, sub) {
+  var v = document.getElementById('veil');
+  if (on) {
+    document.getElementById('veilT').textContent = title || 'Patientez…';
+    document.getElementById('veilS').textContent = sub || '';
+  }
+  v.classList.toggle('on', !!on);
 }
 
 function busy(btn, on, label) {
@@ -262,6 +286,7 @@ function wire() {
     var url = document.getElementById('url');
     go.onclick = async function () {
       busy(go, true, 'Vérification…');
+      wait(true, 'Vérification de votre abonnement…', 'On demande son état à votre fournisseur.');
       try {
         var sub = await api('api/subscription', { url: url.value });
         var line = '<div class="tv-sub"><span><b>' + esc(sub.status) + '</b></span>' +
@@ -270,13 +295,17 @@ function wire() {
           (sub.trial ? '<span>essai</span>' : '') + '</div>';
         say('m', line + '<p>Chargement de la liste…</p>', sub.active ? 'ok' : 'err');
         busy(go, true, 'Chargement de la liste…');
+        wait(true, 'Lecture de votre liste de chaînes…',
+          'Une grosse liste (plusieurs dizaines de milliers de flux) demande une à deux minutes. Laissez cette fenêtre ouverte.');
         var res = await api('api/playlist', { url: url.value, tuner: sub.maxConnections });
         groups = res.groups || [];
         say('m', line + '<p class="ok">' + res.streams + ' flux reçus, ' + groups.length + ' groupes. Passez aux chaînes.</p>', 'ok');
         show('2');
       } catch (e) {
-        say('m', esc(e.message), 'err');
+        say('m', esc(e.message) + '<br><span class="dk-muted">Si l\'app s\'est relancée pendant la lecture, c\'est la mémoire : ' +
+          'augmentez-la dans Desktroo Apps, puis reprenez ici.</span>', 'err');
       }
+      wait(false);
       busy(go, false);
     };
   }
@@ -289,12 +318,14 @@ function wire() {
       reload.dataset.label = reload.textContent;
       reload.onclick = async function () {
         busy(reload, true, 'Lecture de la liste…');
+        wait(true, 'Lecture de votre liste de chaînes…', 'Une à deux minutes sur une grosse liste.');
         try {
           var r = await api('api/playlist', {});
           groups = r.groups || [];
           say('m', r.streams + ' flux, ' + groups.length + ' groupes.', 'ok');
           show('2');
         } catch (e) { say('m', esc(e.message), 'err'); busy(reload, false); }
+        wait(false);
       };
       return;
     }
@@ -304,12 +335,14 @@ function wire() {
     go.onclick = async function () {
       var chosen = boxes().filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
       busy(go, true, 'Mise en place…');
+      wait(true, 'Mise en place de vos chaînes…', 'Les filtres sont créés et la liste est relue.');
       try {
         var r = await api('api/filters', { groups: chosen, hdOnly: document.getElementById('hdOnly').checked });
         say('m', r.channels + ' chaîne(s) retenue(s). Passez au guide.', 'ok');
         await load();
         show('3');
       } catch (e) { say('m', esc(e.message), 'err'); }
+      wait(false);
       busy(go, false);
     };
   }
@@ -317,12 +350,14 @@ function wire() {
   if (step === '3') {
     var run = async function (btn, payload) {
       busy(btn, true, 'Installation du guide…');
+      wait(true, 'Installation du guide…', 'Téléchargement des programmes puis association à vos chaînes.');
       try {
         var r = await api('api/guide', payload);
         say('m', r.matched + ' chaîne(s) avec programmes, ' + r.dummy + ' sans (elles restent visibles). Passez à Jellyfin.', 'ok');
         await load();
         show('4');
       } catch (e) { say('m', esc(e.message), 'err'); }
+      wait(false);
       busy(btn, false);
     };
     go.onclick = function () { run(go, {}); };
@@ -337,6 +372,7 @@ function wire() {
   if (step === '4') {
     go.onclick = async function () {
       busy(go, true, 'Liaison…');
+      wait(true, 'Liaison avec Jellyfin…', 'Déclaration du tuner et du guide, puis lancement de l\'actualisation.');
       try {
         var r = await api('api/jellyfin', {
           url: document.getElementById('jurl').value,
@@ -349,6 +385,7 @@ function wire() {
         if (window.desktroo) desktroo.notify('TV en direct installée', 'success');
         await load();
       } catch (e) { say('m', esc(e.message), 'err'); }
+      wait(false);
       busy(go, false);
     };
   }

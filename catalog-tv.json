@@ -23,7 +23,7 @@
   "read_only": true,
   "env": { "TZ": "@host" },
   "volumes": [ { "name": "data", "mount": "/data" } ],
-  "resources": { "memory_mb": 1024, "cpus": 2 },
+  "resources": { "memory_mb": 3072, "cpus": 2 },
   "window": { "width": 1120, "height": 780 },
   "icon": "icons/tv.svg"
 }

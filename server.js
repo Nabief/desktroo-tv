@@ -234,12 +234,43 @@ function norm(name) {
 }
 
 /** Groupes de la liste de lecture, avec le nombre de flux : [{name, count}]. */
+/**
+ * Groupes de la liste, avec leur nom exact. Le moteur compare les groupes à l'identique, et des
+ * fournisseurs laissent une espace à la fin de leurs noms : rogner ce nom donne un filtre qui ne
+ * retient rien. On prend donc les noms bruts, et le nombre vient de l'étiquette « nom (nombre) ».
+ */
 function groupsOf(server) {
   const g = (((server.data || {}).playlist || {}).m3u || {}).groups || {};
-  return (g.text || []).map((t) => {
-    const m = /^(.*?)\s*\((\d+)\)\s*$/.exec(t);
-    return m ? { name: m[1], count: Number(m[2]) } : { name: t, count: 0 };
-  });
+  const counts = {};
+  for (const t of g.text || []) {
+    const m = /^(.*) \((\d+)\)$/.exec(t);          // une seule espace avant la parenthèse
+    if (m) counts[m[1]] = Number(m[2]);
+  }
+  const names = (g.value || []).length ? g.value : Object.keys(counts);
+  return names.map((n) => ({ name: n, count: counts[n] || 0 }));
+}
+
+/**
+ * Rattrape les filtres devenus inopérants. Un fournisseur qui renomme un groupe — ne serait-ce
+ * qu'en ajoutant une espace à la fin — fait disparaître ses chaînes sans un mot, puisque le moteur
+ * exige un nom identique. On ne corrige que les cas sans ambiguïté, et on retire les doublons.
+ */
+async function repairFilters(server) {
+  const names = groupsOf(server).map((g) => g.name);
+  if (!names.length) return server;
+  const filters = (server.settings || {}).filter || {};
+  const seen = [];
+  let last = server;
+  for (const id of Object.keys(filters)) {
+    const rule = String(filters[id].filter || '');
+    if (!rule) continue;
+    if (seen.indexOf(rule) !== -1) { last = await tf.saveFilter({ [id]: { delete: true } }); continue; }
+    seen.push(rule);
+    if (names.indexOf(rule) !== -1) continue;
+    const near = names.filter((n) => n.trim().toLowerCase() === rule.trim().toLowerCase());
+    if (near.length === 1) last = await tf.saveFilter({ [id]: Object.assign({}, filters[id], { filter: near[0] }) });
+  }
+  return last;
 }
 
 const DEFAULT_EXCLUDE = '✦●✦,24/7,[BK]';
@@ -364,7 +395,8 @@ async function installPlaylist(tuner) {
   }
   // Première fois : le moteur télécharge la liste et construit sa base de chaînes dans le même geste.
   if (!existing) return tf.saveM3U('', 'Ma liste', u, n);
-  const after = await tf.saveM3U(existing, 'Ma liste', u, n);   // relit le fichier
+  let after = await tf.saveM3U(existing, 'Ma liste', u, n);     // relit le fichier
+  after = await repairFilters(after);                           // groupes renommés par le fournisseur
   return activate(await rebuild(after));
 }
 
@@ -625,6 +657,14 @@ async function routes(req, res, url, user) {
       }
       const mapping = (server.xepg || {}).epgMapping || {};
       const n = Object.keys(mapping).length;
+      const groupes = groupsOf(server).map((g) => g.name);
+      const perdus = Object.values((server.settings || {}).filter || {})
+        .map((f) => String(f.filter || '')).filter((r) => r && groupes.indexOf(r) === -1);
+      if (groupes.length) {
+        add('Groupes encore présents chez le fournisseur', perdus.length === 0,
+          perdus.length === 0 ? 'tous les groupes choisis existent toujours'
+            : perdus.join(', ') + ' — introuvable(s) : repassez par l’écran ③');
+      }
       add('Chaînes retenues', n > 0, n + ' chaîne(s)');
       const withGuide = Object.keys(mapping).filter((k) => {
         const f = mapping[k]['x-xmltv-file'];

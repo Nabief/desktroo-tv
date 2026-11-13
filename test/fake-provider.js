@@ -4,8 +4,8 @@
 const http = require('http');
 const PORT = Number(process.argv[2] || 9999);
 const CH = [
-  ['FR| TF1 HD', 'TF1.fr', 'EU | FRANCE GENERALE'], ['FR| TF1 FHD', 'TF1.fr', 'EU | FRANCE GENERALE'],
-  ['FR| M6 HD', 'M6.fr', 'EU | FRANCE GENERALE'], ['FR| ARTE HD', 'Arte.fr', 'EU | FRANCE GENERALE'],
+  ['FR| TF1 HD', 'TF1.fr', 'EU | FRANCE GENERALE '], ['FR| TF1 FHD', 'TF1.fr', 'EU | FRANCE GENERALE '],
+  ['FR| M6 HD', 'M6.fr', 'EU | FRANCE GENERALE '], ['FR| ARTE HD', 'Arte.fr', 'EU | FRANCE GENERALE '],
   ['FR| BFM TV HD', 'BFMTV.fr', 'EU | FRANCE INFORMATION'], ['FR| CNEWS SD', 'CNews.fr', 'EU | FRANCE INFORMATION'],
   ['FR| GULLI HD', 'Gulli.fr', 'EU | FRANCE ENFANTS'], ['FR| CHAINE SANS GUIDE HD', '', 'EU | FRANCE ENFANTS'],
 ];

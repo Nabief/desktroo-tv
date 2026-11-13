@@ -124,7 +124,11 @@ function stepChannels() {
     var pre = /fr|franc/i.test(g.name);
     return '<label><input type="checkbox" value="' + esc(g.name) + '"' + (pre ? ' checked' : '') + '> ' +
       '<span>' + esc(g.name) + '</span><span class="n">' + g.count + '</span></label>';
-  }).join('') : '<p class="dk-muted">Chargez d\'abord la liste à l\'écran précédent.</p>';
+  }).join('')
+    // Les groupes ne vivent qu'en mémoire du moteur : après une réouverture, on les redemande.
+    : (S.playlist
+      ? '<p class="dk-muted">Les groupes se relisent dans votre liste de lecture.</p>'
+      : '<p class="dk-muted">Commencez par l\'écran ① : l\'adresse de votre liste de chaînes.</p>');
   return `
   <div class="tv-step">
     <h2>Les chaînes à garder</h2>
@@ -135,9 +139,11 @@ function stepChannels() {
       <label><input type="checkbox" id="hdOnly"> Garder seulement la version HD de chaque chaîne (sinon : HD, SD, HEVC et 4K, au choix dans l'appli)</label>
     </div>
     <div class="tv-row">
-      <button class="dk-btn" id="all" data-label="Tout cocher">Tout cocher</button>
-      <button class="dk-btn" id="none" data-label="Tout décocher">Tout décocher</button>
-      <button class="dk-btn primary" id="go" data-label="Garder ces chaînes">Garder ces chaînes</button>
+      ${groups.length ? '<button class="dk-btn" id="all" data-label="Tout cocher">Tout cocher</button>' +
+        '<button class="dk-btn" id="none" data-label="Tout décocher">Tout décocher</button>' +
+        '<button class="dk-btn primary" id="go" data-label="Garder ces chaînes">Garder ces chaînes</button>'
+        : (S.playlist ? '<button class="dk-btn primary" id="reload" data-label="Relire la liste">Relire la liste</button>'
+          : '<button class="dk-btn primary" id="back" data-label="Aller à l\'écran ①">Aller à l\'écran ①</button>')}
     </div>
     <div class="tv-msg" id="m"></div>
   </div>`;
@@ -257,6 +263,22 @@ function wire() {
   }
 
   if (step === '2') {
+    var back = document.getElementById('back');
+    if (back) { back.onclick = function () { show('1'); }; return; }
+    var reload = document.getElementById('reload');
+    if (reload) {
+      reload.dataset.label = reload.textContent;
+      reload.onclick = async function () {
+        busy(reload, true, 'Lecture de la liste…');
+        try {
+          var r = await api('api/playlist', {});
+          groups = r.groups || [];
+          say('m', r.streams + ' flux, ' + groups.length + ' groupes.', 'ok');
+          show('2');
+        } catch (e) { say('m', esc(e.message), 'err'); busy(reload, false); }
+      };
+      return;
+    }
     var boxes = function () { return Array.prototype.slice.call(document.querySelectorAll('#groups input')); };
     document.getElementById('all').onclick = function () { boxes().forEach(function (b) { b.checked = true; }); };
     document.getElementById('none').onclick = function () { boxes().forEach(function (b) { b.checked = false; }); };
@@ -368,6 +390,7 @@ document.getElementById('refresh').onclick = async function () { await load(); s
   await load();
   // Reprise : on ouvre l'écran là où l'installation s'est arrêtée.
   var start = !S.playlist ? '1' : (!S.channels ? '2' : (!S.withGuide ? '3' : (!S.jellyfin.linked ? '4' : 'check')));
+  if (window.desktroo) desktroo.setTitle('Desktroo TV');
   show(start);
 })();
 </script>

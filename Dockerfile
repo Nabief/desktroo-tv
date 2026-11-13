@@ -29,8 +29,11 @@ LABEL org.opencontainers.image.title="Desktroo TV" \
 WORKDIR /app
 COPY --from=engine /threadfin /app/threadfin
 COPY --from=engine /src/LICENSE /app/THREADFIN-LICENSE
-COPY server.js tf.js jellyfin.js ./
+# Tous les modules de l'app, pour qu'en ajouter un n'oblige pas à penser à cette ligne.
+COPY *.js ./
 COPY public ./public
+# Garde-fou : l'app démarrerait et s'arrêterait aussitôt s'il manquait un de ses modules.
+RUN node -e 'const fs=require("fs");const s=fs.readFileSync("server.js","utf8");let n=0;for(const m of s.matchAll(/require\(.\.\/([a-z-]+)./g)){fs.accessSync(m[1]+".js");n++}console.log("modules locaux presents :",n)'
 ENV NODE_ENV=production DATA_DIR=/data
 EXPOSE 8080 34400
 # Desktroo Apps lance le conteneur sous le compte du NAS prêté à l'app, en lecture seule hors de ses volumes.

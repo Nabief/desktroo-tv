@@ -19,8 +19,12 @@
   .tv-msg.ok { color: var(--accent2); }
   .tv-sub { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; font-size: 13px; }
   .tv-sub b { font-weight: 600; }
+  /* La liste défile : son bord doit se voir, sinon on croit qu'elle s'arrête là où elle est coupée. */
   .tv-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 14px; margin-top: 10px;
-    max-height: 320px; overflow: auto; padding-right: 4px; }
+    max-height: min(52vh, 420px); overflow: auto; padding: 6px 8px; border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm); }
+  .tv-groups::-webkit-scrollbar { width: 10px; }
+  .tv-groups::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 6px; }
   .tv-groups label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 0; cursor: pointer; }
   .tv-groups .n { color: var(--text-dim); font-size: 11.5px; }
   .tv-checks { list-style: none; margin: 10px 0 0; padding: 0; }
@@ -185,6 +189,10 @@ function stepChannels() {
     <h2>Les chaînes à garder</h2>
     <p class="tv-lead">Votre liste contient souvent des dizaines de milliers de flux. Choisissez les groupes qui vous intéressent :
       les autres n'apparaîtront pas dans Jellyfin, qui restera rapide.</p>
+    ${groups.length ? `<div class="tv-row" style="margin-bottom:0">
+      <input class="dk-input" id="gq" placeholder="Filtrer : musique, sport, cinéma…" style="max-width:300px">
+      <span class="dk-muted" id="gn">${groups.length} groupes — la liste défile</span>
+    </div>` : ''}
     <div class="tv-groups" id="groups">${list}</div>
     <div class="tv-field" style="margin-top:14px">
       <label><input type="checkbox" id="hdOnly"> Garder seulement la version HD de chaque chaîne (sinon : HD, SD, HEVC et 4K, au choix dans l'appli)</label>
@@ -413,8 +421,25 @@ function wire() {
       return;
     }
     var boxes = function () { return Array.prototype.slice.call(document.querySelectorAll('#groups input')); };
-    document.getElementById('all').onclick = function () { boxes().forEach(function (b) { b.checked = true; }); };
-    document.getElementById('none').onclick = function () { boxes().forEach(function (b) { b.checked = false; }); };
+    // « Tout cocher » ne porte que sur ce qui est affiché : avec un filtre en cours, cocher
+    // soixante groupes invisibles serait une mauvaise surprise.
+    var shown = function () { return boxes().filter(function (b) { return b.parentNode.style.display !== 'none'; }); };
+    document.getElementById('all').onclick = function () { shown().forEach(function (b) { b.checked = true; }); };
+    document.getElementById('none').onclick = function () { shown().forEach(function (b) { b.checked = false; }); };
+    var gq = document.getElementById('gq');
+    if (gq) {
+      gq.oninput = function () {
+        var q = gq.value.trim().toLowerCase();
+        var n = 0;
+        boxes().forEach(function (b) {
+          var ok = !q || b.parentNode.textContent.toLowerCase().indexOf(q) !== -1;
+          b.parentNode.style.display = ok ? '' : 'none';
+          if (ok) n++;
+        });
+        document.getElementById('gn').textContent = q ? n + ' groupe(s) sur ' + boxes().length
+          : boxes().length + ' groupes — la liste défile';
+      };
+    }
     go.onclick = async function () {
       var chosen = boxes().filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
       busy(go, true, 'Mise en place…');

@@ -23,6 +23,11 @@
   .tv-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 14px; margin-top: 10px;
     max-height: min(52vh, 420px); overflow: auto; padding: 6px 8px; border: 1px solid var(--glass-border);
     border-radius: var(--radius-sm); }
+  .tv-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .tv-chips button { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--glass-border); background: transparent; color: var(--text-dim); }
+  .tv-chips button:hover { color: var(--text); }
+  .tv-chips button[aria-pressed="true"] { background: var(--accent2); border-color: var(--accent2); color: #fff; }
   .tv-groups::-webkit-scrollbar { width: 10px; }
   .tv-groups::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 6px; }
   .tv-groups label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 0; cursor: pointer; }
@@ -174,6 +179,23 @@ function stepSubscription() {
   </div>`;
 }
 
+/**
+ * Pays et familles présents dans la liste. Les fournisseurs nomment leurs groupes « EU | FRANCE
+ * CINEMA », « EU | SPAIN DAZN » : le mot qui suit la barre verticale sert de raccourci, sans qu'il
+ * faille connaître d'avance les pays proposés.
+ */
+function families() {
+  var count = {};
+  groups.forEach(function (g) {
+    var m = /(?:^|\|)\s*([^|]+)$/.exec(g.name);
+    var w = (m ? m[1] : g.name).trim().split(/\s+/)[0];
+    if (w && w.length > 1) count[w] = (count[w] || 0) + 1;
+  });
+  return Object.keys(count).filter(function (w) { return count[w] > 1; })
+    .sort(function (a, b) { return count[b] - count[a] || a.localeCompare(b); })
+    .slice(0, 12).map(function (w) { return { word: w, n: count[w] }; });
+}
+
 function stepChannels() {
   var list = groups.length ? groups.map(function (g, i) {
     var pre = /fr|franc/i.test(g.name);
@@ -192,7 +214,11 @@ function stepChannels() {
     ${groups.length ? `<div class="tv-row" style="margin-bottom:0">
       <input class="dk-input" id="gq" placeholder="Filtrer : musique, sport, cinéma…" style="max-width:300px">
       <span class="dk-muted" id="gn">${groups.length} groupes — la liste défile</span>
-    </div>` : ''}
+    </div>
+    <div class="tv-chips" id="fam">${families().map(function (f) {
+      return '<button type="button" data-w="' + esc(f.word) + '" aria-pressed="false">' + esc(f.word) +
+        ' <span class="dk-muted">' + f.n + '</span></button>';
+    }).join('')}</div>` : ''}
     <div class="tv-groups" id="groups">${list}</div>
     <div class="tv-field" style="margin-top:14px">
       <label><input type="checkbox" id="hdOnly"> Garder seulement la version HD de chaque chaîne (sinon : HD, SD, HEVC et 4K, au choix dans l'appli)</label>
@@ -426,6 +452,19 @@ function wire() {
     var shown = function () { return boxes().filter(function (b) { return b.parentNode.style.display !== 'none'; }); };
     document.getElementById('all').onclick = function () { shown().forEach(function (b) { b.checked = true; }); };
     document.getElementById('none').onclick = function () { shown().forEach(function (b) { b.checked = false; }); };
+    var fam = document.getElementById('fam');
+    if (fam) {
+      fam.onclick = function (e) {
+        var b = e.target.closest('button[data-w]');
+        if (!b) return;
+        var on = b.getAttribute('aria-pressed') === 'true';
+        Array.prototype.forEach.call(fam.children, function (x) { x.setAttribute('aria-pressed', 'false'); });
+        b.setAttribute('aria-pressed', on ? 'false' : 'true');
+        var q = document.getElementById('gq');
+        q.value = on ? '' : b.dataset.w;
+        q.dispatchEvent(new Event('input'));
+      };
+    }
     var gq = document.getElementById('gq');
     if (gq) {
       gq.oninput = function () {

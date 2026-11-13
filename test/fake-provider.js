@@ -25,12 +25,19 @@ const m3u = () => '#EXTM3U\n' + LIST().map(([name, id, grp], i) =>
   (BIG ? '\n' : '');
 const xmltv = () => {
   const d = new Date(), p = (n) => String(n).padStart(2, '0');
-  const stamp = (h) => d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + p(h) + '0000 +0100';
+  const stamp = (h) => { const t = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
+    t.setMinutes(t.getMinutes() + Math.round(h * 60));
+    return t.getFullYear() + p(t.getMonth() + 1) + p(t.getDate()) + p(t.getHours()) + p(t.getMinutes()) + '00 +0100'; };
   const ids = [...new Set(CH.map((c) => c[1]).filter(Boolean))];
+  // « big » : un guide de la taille d'un vrai (des dizaines de milliers de programmes, plusieurs Mo),
+  // de quoi mesurer ce que coûte au moteur une reconstruction quand un guide est en place.
+  const jours = BIG ? 7 : 1, parJour = BIG ? 48 : 4, autres = BIG ? 250 : 0;
+  const tous = ids.concat(Array.from({ length: autres }, (_, i) => 'Autre' + i + '.fr'));
+  const creneaux = Array.from({ length: jours * parJour }, (_, k) => k * (24 / parJour));
   return '<?xml version="1.0" encoding="UTF-8"?>\n<tv>' +
-    ids.map((id) => '<channel id="' + id + '"><display-name>' + id.replace('.fr', '') + '</display-name></channel>').join('') +
-    ids.map((id) => [0, 6, 12, 18].map((h) => '<programme channel="' + id + '" start="' + stamp(h) + '" stop="' + stamp(h + 6) +
-      '"><title lang="fr">Émission ' + h + 'h sur ' + id.replace('.fr', '') + '</title><desc lang="fr">Résumé d’essai.</desc></programme>').join('')).join('') +
+    tous.map((id) => '<channel id="' + id + '"><display-name>' + id.replace('.fr', '') + '</display-name></channel>').join('') +
+    tous.map((id) => creneaux.map((h) => '<programme channel="' + id + '" start="' + stamp(h) + '" stop="' + stamp(h + 24 / parJour) +
+      '"><title lang="fr">Émission ' + h + 'h sur ' + id.replace('.fr', '') + '</title><desc lang="fr">Résumé d’essai, assez long pour peser comme un vrai résumé de programme télévisé.</desc></programme>').join('')).join('') +
     '</tv>';
 };
 http.createServer((req, res) => {

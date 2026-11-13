@@ -288,6 +288,14 @@ async function repairFilters(server) {
 const DEFAULT_EXCLUDE = '✦●✦,24/7,[BK]';
 
 /** Crée un filtre par groupe choisi (un appel par filtre : Threadfin numérote lui-même). */
+// Où en est le travail en cours. Le moteur ne sait créer qu'un filtre à la fois et reconstruit
+// tout après chacun : sur une grosse liste avec un guide installé, cela prend des minutes, et sans
+// rien dire on croit l'app plantée.
+let job = { label: '', unit: '', done: 0, total: 0, at: 0 };
+function progress(label, unit, done, total) {
+  job = { label: label, unit: unit, done: done, total: total, at: Date.now() };
+}
+
 async function makeFilters(groups, opts) {
   const o = opts || {};
   // L'écran ③ décrit l'ensemble des chaînes voulues : on repart des groupes cochés plutôt que
@@ -295,7 +303,9 @@ async function makeFilters(groups, opts) {
   const before = await tf.state();
   let last = await dropFilters(before, Object.keys((before.settings || {}).filter || {}));
   let n = 1000;
-  for (const g of groups.slice(0, 40)) {
+  const wanted = groups.slice(0, 40);
+  progress('Mise en place de vos groupes', 'Groupe', 0, wanted.length);
+  for (const g of wanted) {
     const f = {
       name: String(g).replace(/^.*\|\s*/, '').trim() || String(g),
       filter: String(g),
@@ -310,6 +320,7 @@ async function makeFilters(groups, opts) {
     };
     last = await tf.saveFilter({ '-1': f });
     n += 1000;
+    progress('Mise en place de vos groupes', 'Groupe', wanted.indexOf(g) + 1, wanted.length);
   }
   return last;
 }
@@ -566,10 +577,13 @@ async function routes(req, res, url, user) {
     const groups = Array.isArray(b.groups) ? b.groups.map(String) : [];
     if (!groups.length) throw fail('Choisissez au moins un groupe de chaînes.');
     let server = await makeFilters(groups, { hdOnly: !!b.hdOnly, exclude: b.exclude });
+    progress('Association du guide', 'Étape', 0, 2);
     server = await activate(server);
     // Une version d'une chaîne a pu être confondue avec une autre pendant la construction : une
     // reconstruction, chaînes actives cette fois, la recrée.
+    progress('Association du guide', 'Étape', 1, 2);
     server = await activate(await rebuild(server));
+    progress('', '', 0, 0);
     const mapping = ((server || {}).xepg || {}).epgMapping || {};
     return json(res, 200, { channels: Object.keys(mapping).length });
   }
@@ -653,6 +667,9 @@ async function routes(req, res, url, user) {
     }
     return json(res, 200, await apiState());
   }
+
+  // Où en est le travail en cours, pour que l'écran puisse le montrer plutôt que de faire attendre.
+  if (p === '/api/progress') return json(res, 200, job);
 
   // Vérification de bout en bout, à relancer quand quelque chose cloche.
   if (p === '/api/check' && req.method === 'GET') {

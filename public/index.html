@@ -59,6 +59,9 @@
     border-radius: 50%; animation: tvspin .9s linear infinite; }
   .tv-veil .t { font-weight: 600; }
   .tv-veil .s { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
+  .tv-bar { width: 220px; height: 6px; border-radius: 999px; background: rgba(var(--accent-rgb), .18); overflow: hidden; }
+  .tv-bar i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--accent);
+    transition: width .35s ease; }
   /* Marque du fournisseur : carré orange, « FLUX » puis « TV ». */
   .tv-flux { display: inline-flex; align-items: center; gap: 7px; font-weight: 800; letter-spacing: .5px; }
   .tv-flux svg { width: 17px; height: 17px; flex-shrink: 0; }
@@ -67,7 +70,9 @@
 </head>
 <body>
 <div class="tv-veil" id="veil" role="status" aria-live="polite">
-  <div class="box"><div class="tv-ring"></div><div class="t" id="veilT">Patientez…</div><div class="s" id="veilS"></div></div>
+  <div class="box"><div class="tv-ring"></div><div class="t" id="veilT">Patientez…</div>
+    <div class="tv-bar" id="veilB" hidden><i id="veilBi"></i></div>
+    <div class="s" id="veilS"></div></div>
 </div>
 <div class="dk-shell">
   <nav class="dk-side" id="nav">
@@ -139,8 +144,32 @@ function wait(on, title, sub) {
   if (on) {
     document.getElementById('veilT').textContent = title || 'Patientez…';
     document.getElementById('veilS').textContent = sub || '';
+    document.getElementById('veilB').hidden = true;
   }
   v.classList.toggle('on', !!on);
+  if (!on) suivre(false);
+}
+
+/**
+ * Suit l'avancement du travail en cours. Le moteur reconstruit tout après chaque groupe posé :
+ * sans ce compte rendu, plusieurs minutes d'attente passent pour un plantage.
+ */
+var suivi = null;
+function suivre(on) {
+  if (suivi) { clearInterval(suivi); suivi = null; }
+  if (!on) return;
+  var bar = document.getElementById('veilB'), fill = document.getElementById('veilBi');
+  suivi = setInterval(async function () {
+    try {
+      var j = await api('api/progress');
+      if (!j || !j.total) return;
+      bar.hidden = false;
+      fill.style.width = Math.round((j.done / j.total) * 100) + '%';
+      document.getElementById('veilT').textContent = j.label + '…';
+      document.getElementById('veilS').textContent = (j.unit || 'Étape') + ' ' + Math.min(j.done + 1, j.total) +
+        ' sur ' + j.total + '. Le moteur refait sa liste de chaînes à chaque fois, c\'est ce qui prend du temps.';
+    } catch (e) { /* une mesure manquée n'a pas d'importance */ }
+  }, 900);
 }
 
 function busy(btn, on, label) {
@@ -519,7 +548,9 @@ function wire() {
     go.onclick = async function () {
       var chosen = boxes().filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
       busy(go, true, 'Mise en place…');
-      wait(true, 'Mise en place de vos chaînes…', 'Les filtres sont créés et la liste est relue.');
+      wait(true, 'Mise en place de vos chaînes…',
+        'Comptez une à plusieurs minutes selon le nombre de groupes : ce n\'est pas bloqué.');
+      suivre(true);
       try {
         var r = await api('api/filters', { groups: chosen, hdOnly: document.getElementById('hdOnly').checked });
         say('m', r.channels + ' chaîne(s) retenue(s). Passez au guide.', 'ok');

@@ -119,16 +119,44 @@ function startEngine() {
  * pour que l'app (boucle locale) et Jellyfin (réseau des apps) le joignent tous les deux.
  * Rend vrai s'il faut le relancer.
  */
+/**
+ * Le moteur n'écoute par défaut que sur une adresse, et Jellyfin ne le joindrait pas. Son fichier de
+ * configuration n'expose pas ce réglage par son interface : il faut l'y écrire. Mais un fichier
+ * incomplet le fait refuser de démarrer pour de bon (« Invalid settings file »), donc on attend
+ * qu'il ait posé le sien — reconnaissable à son numéro de version — avant d'y toucher.
+ */
 async function ensureBind() {
   const file = path.join(CONF, 'settings.json');
-  let s;
-  try { s = JSON.parse(await fsp.readFile(file, 'utf8')); } catch (_) { return false; }
-  if (s.bindIpAddress === '0.0.0.0') return false;
-  s.bindIpAddress = '0.0.0.0';
-  const tmp = file + '.tmp';
-  await fsp.writeFile(tmp, JSON.stringify(s, null, 2), 'utf8');
-  await fsp.rename(tmp, file);
-  return true;
+  for (let essai = 0; essai < 15; essai++) {
+    let s = null;
+    try { s = JSON.parse(await fsp.readFile(file, 'utf8')); } catch (_) { s = null; }
+    if (s && typeof s === 'object' && s.version) {
+      if (s.bindIpAddress === '0.0.0.0') return false;
+      s.bindIpAddress = '0.0.0.0';
+      const tmp = file + '.tmp';
+      await fsp.writeFile(tmp, JSON.stringify(s, null, 2), 'utf8');
+      await fsp.rename(tmp, file);
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  console.log('[tv] configuration du moteur illisible : réglage d\'écoute laissé de côté');
+  return false;
+}
+
+/**
+ * Une configuration tronquée empêche le moteur de démarrer, indéfiniment. Mieux vaut la retirer et
+ * le laisser refaire la sienne que de rester bloqué : elle ne contient de toute façon rien
+ * d'exploitable, et l'assistant repose ses réglages derrière.
+ */
+async function repairEngineSettings() {
+  const file = path.join(CONF, 'settings.json');
+  let s = null;
+  try { s = JSON.parse(await fsp.readFile(file, 'utf8')); } catch (_) { return; }
+  if (s && typeof s === 'object' && !s.version) {
+    await fsp.rename(file, file + '.casse').catch(() => fsp.unlink(file).catch(() => {}));
+    console.log('[tv] configuration du moteur tronquée : mise de côté, le moteur refait la sienne');
+  }
 }
 
 /** Attend que le moteur ait écrit ses réglages (premier démarrage). */
@@ -159,7 +187,8 @@ async function engineDefaults() {
   if (Number(s['buffer.timeout']) !== 500) wanted['buffer.timeout'] = 500;
   // Beaucoup de fournisseurs ne répondent qu'aux lecteurs qu'ils connaissent et laissent les autres
   // attendre sans rien envoyer.
-  if (!s['user.agent']) wanted['user.agent'] = 'VLC/3.0.20 LibVLC/3.0.20';
+  const ua = String(s['user.agent'] || '');
+  if (!ua || ua === 'Threadfin') wanted['user.agent'] = 'VLC/3.0.20 LibVLC/3.0.20';   // un choix personnel est respecté
   if (!Array.isArray(s.update) || !s.update.length) wanted.update = ['0300'];
   // Adresse annoncée dans les liens (chaînes, logos) : le nom du conteneur, que Jellyfin sait joindre.
   const domain = 'dt-' + APP_ID;
@@ -573,6 +602,7 @@ async function apiState() {
     // Noms exacts des groupes retenus : l'écran ② s'en sert pour recocher le choix en place,
     // afin qu'ajouter un groupe n'oblige pas à tout refaire.
     chosen: Object.keys(settings.filter || {}).map((k) => String(settings.filter[k].filter || '')).filter(Boolean),
+    exclude: (Object.keys(settings.filter || {}).map((k) => String(settings.filter[k].exclude || ''))[0] || DEFAULT_EXCLUDE),
     hdOnly: Object.keys(settings.filter || {}).every((k) => String(settings.filter[k].include || '') === 'HD')
       && Object.keys(settings.filter || {}).length > 0,
     channels: values.length,
@@ -700,6 +730,41 @@ async function routes(req, res, url, user) {
     const rest = await jf.others(base, key, TUNER_URL, TUNER_URL + '/xmltv/threadfin.xml');
     return json(res, 200, { server: (about && about.ServerName) || 'Jellyfin', version: (about && about.Version) || '',
       refreshing: started, others: rest });
+  }
+
+  /**
+   * Remise à plat de la TV en direct dans Jellyfin. Jellyfin garde en base les chaînes qu'il a vues
+   * une fois : celles retirées d'un groupe restent dans son guide, et aucune actualisation ne les
+   * enlève tant qu'un tuner les a déclarées. On le laisse donc un instant sans aucune source, le
+   * temps qu'il vide sa liste, puis on redéclare la nôtre.
+   */
+  if (p === '/api/jellyfin/repair' && req.method === 'POST') {
+    if (!state.jellyfin.key) throw fail("Reliez d'abord Jellyfin (écran ④).");
+    const base = state.jellyfin.url, key = state.jellyfin.key;
+    const guideUrl = TUNER_URL + '/xmltv/threadfin.xml';
+    const etape = (n) => progress('Remise à plat de Jellyfin', 'Étape', n, 4);
+    etape(0);
+    const tout = await jf.others(base, key, '', '');          // y compris nos propres sources
+    for (const g of tout.guides) { if (g.id) await jf.dropGuide(base, key, g.id); }
+    for (const t of tout.tuners) { if (t.id) await jf.dropTuner(base, key, t.id); }
+    etape(1);
+    await jf.refreshGuide(base, key).catch(() => false);      // la tâche disparaît sans tuner
+    let reste = -1;
+    for (let i = 0; i < 60; i++) {                            // jusqu'à trois minutes
+      try { reste = await jf.channelCount(base, key); } catch (_) { reste = -1; }
+      if (reste === 0) break;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    etape(2);
+    const engine = await tf.state();
+    const tuner = (Object.keys(((engine.settings || {}).files || {}).m3u || {})
+      .map((id) => engine.settings.files.m3u[id].tuner)[0]) || 1;
+    await jf.setTuner(base, key, TUNER_URL, tuner);
+    await jf.setGuide(base, key, guideUrl);
+    etape(3);
+    const started = await jf.refreshGuide(base, key);
+    progress('', '', 0, 0);
+    return json(res, 200, { emptied: reste === 0, remaining: reste, refreshing: started });
   }
 
   // Tuner ou guide d'une installation précédente : tant qu'ils restent, tout apparaît en double.
@@ -907,6 +972,7 @@ server.on('upgrade', (req, socket, head) => {
 
 (async () => {
   await loadState();
+  await repairEngineSettings();    // une configuration tronquée empêcherait le moteur de démarrer
   startEngine();
   server.listen(PORT, () => console.log('[tv] prêt sur ' + PORT));
   try {

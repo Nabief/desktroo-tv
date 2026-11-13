@@ -377,6 +377,7 @@ function stepCheck() {
     <div class="tv-row">
       <button class="dk-btn primary" id="go" data-label="Vérifier mon installation">Vérifier mon installation</button>
       <button class="dk-btn" id="log" data-label="Voir le journal du moteur">Voir le journal du moteur</button>
+      <button class="dk-btn" id="repair" data-label="Remettre Jellyfin d'aplomb">Remettre Jellyfin d'aplomb</button>
     </div>
     <ul class="tv-checks" id="checks"></ul>
     <pre class="tv-log" id="logbox" hidden></pre>
@@ -554,7 +555,8 @@ function wire() {
         'Comptez une à plusieurs minutes selon le nombre de groupes : ce n\'est pas bloqué.');
       suivre(true);
       try {
-        var r = await api('api/filters', { groups: chosen, hdOnly: document.getElementById('hdOnly').checked });
+        var r = await api('api/filters', { groups: chosen, hdOnly: document.getElementById('hdOnly').checked,
+          exclude: (document.getElementById('exc') || {}).value });
         say('m', r.channels + ' chaîne(s) retenue(s). Passez au guide.', 'ok');
         await load();
         show('3');
@@ -628,6 +630,26 @@ function wire() {
     };
     go.onclick = run;
     bindLog();
+    var rep2 = document.getElementById('repair');
+    rep2.dataset.label = rep2.textContent;
+    rep2.onclick = async function () {
+      if (!confirm("Remettre la TV en direct de Jellyfin d'aplomb ?\n\n" +
+        "Jellyfin garde en base les chaînes qu'il a vues une fois, même retirées depuis. Son tuner va être " +
+        "retiré le temps qu'il vide sa liste, puis redéclaré avec le guide. Comptez deux à trois minutes, " +
+        "pendant lesquelles la TV en direct est indisponible. Vos enregistrements et vos réglages ne bougent pas.")) return;
+      busy(rep2, true, 'Remise à plat…');
+      wait(true, 'Remise à plat de Jellyfin…', 'Jellyfin vide sa liste de chaînes, puis la reconstruit depuis le moteur.');
+      suivre(true);
+      try {
+        var r = await api('api/jellyfin/repair', {});
+        wait(false);
+        say('m', r.emptied
+          ? 'Jellyfin est reparti d\'une liste vide et reconstruit la sienne depuis le moteur. Relancez la vérification dans quelques minutes.'
+          : 'Jellyfin n\'a pas vidé sa liste (' + r.remaining + ' chaîne(s) restantes) ; le tuner a été redéclaré quand même.',
+          r.emptied ? 'ok' : 'err');
+      } catch (e) { wait(false); say('m', esc(e.message), 'err'); }
+      busy(rep2, false);
+    };
     run();
   }
 

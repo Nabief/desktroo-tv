@@ -510,13 +510,40 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+/**
+ * L'interface du moteur se croit à la racine du site : sa liaison en direct viserait « /data/ »
+ * au lieu de « /a/tv/engine/data/ ». On glisse ce petit correctif dans ses pages.
+ */
+const ENGINE_PATCH = '<script>(function(){' +
+  'var base=location.pathname.replace(/\\/web\\/.*$/,"");' +
+  'var Native=window.WebSocket;' +
+  'function Patched(u,p){try{var x=new URL(u,location.href);' +
+  'x.protocol=(location.protocol==="https:"?"wss:":"ws:");x.host=location.host;x.pathname=base+"/data/";u=x.toString();}catch(e){}' +
+  'return p?new Native(u,p):new Native(u);}' +
+  'Patched.prototype=Native.prototype;Patched.CONNECTING=0;Patched.OPEN=1;Patched.CLOSING=2;Patched.CLOSED=3;' +
+  'window.WebSocket=Patched;})();</script>';
+
 /** Interface complète de Threadfin, pour les réglages fins (sous /engine/). */
 function proxyEngine(req, res, url) {
   const target = url.pathname.replace(/^\/engine/, '') + url.search;
   const up = http.request({ host: tf.host(), port: tf.PORT, method: req.method, path: target || '/',
     headers: Object.assign({}, req.headers, { host: tf.host() + ':' + tf.PORT }) }, (r) => {
-    res.writeHead(r.statusCode, Object.assign({}, r.headers, HEADERS));
-    r.pipe(res);
+    const html = /text\/html/i.test(String(r.headers['content-type'] || ''));
+    if (!html) {
+      res.writeHead(r.statusCode, Object.assign({}, r.headers, HEADERS));
+      return r.pipe(res);
+    }
+    const chunks = [];
+    r.on('data', (c) => chunks.push(c));
+    r.on('end', () => {
+      let page = Buffer.concat(chunks).toString('utf8');
+      page = /<head[^>]*>/i.test(page) ? page.replace(/<head[^>]*>/i, (m) => m + ENGINE_PATCH) : ENGINE_PATCH + page;
+      const body = Buffer.from(page, 'utf8');
+      const head = Object.assign({}, r.headers, HEADERS, { 'content-length': body.length });
+      delete head['content-encoding'];
+      res.writeHead(r.statusCode, head);
+      res.end(body);
+    });
   });
   up.on('error', () => send(res, 502, 'Moteur TV injoignable.'));
   req.pipe(up);

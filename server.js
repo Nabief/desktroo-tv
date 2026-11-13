@@ -247,7 +247,10 @@ const DEFAULT_EXCLUDE = '✦●✦,24/7,[BK]';
 /** Crée un filtre par groupe choisi (un appel par filtre : Threadfin numérote lui-même). */
 async function makeFilters(groups, opts) {
   const o = opts || {};
-  let last = null;
+  // L'écran ③ décrit l'ensemble des chaînes voulues : on repart des groupes cochés plutôt que
+  // d'empiler les filtres des passages précédents, qui feraient réapparaître des chaînes décochées.
+  let last = await tf.state();
+  for (const id of Object.keys((last.settings || {}).filter || {})) last = await tf.saveFilter({ [id]: { delete: true } });
   let n = 1000;
   for (const g of groups.slice(0, 40)) {
     const f = {
@@ -400,6 +403,19 @@ async function activate(server) {
     }
   }
   return n ? tf.saveEpgMapping(mapping) : server;
+}
+
+/** Renvoie toutes les chaînes vers la grille de remplacement du moteur : plus de guide, mais toujours visibles. */
+async function toDummy(server) {
+  const mapping = ((server.xepg || {}).epgMapping) || {};
+  const keys = Object.keys(mapping);
+  if (!keys.length) return server;
+  for (const k of keys) {
+    mapping[k]['x-xmltv-file'] = 'Threadfin Dummy';
+    mapping[k]['x-mapping'] = '120_Minutes';
+    mapping[k]['x-active'] = true;
+  }
+  return tf.saveEpgMapping(mapping);
 }
 
 /** Réassocie le guide comme à l'écran ④, pour que les chaînes nouvellement apparues aient leur programme. */
@@ -563,6 +579,30 @@ async function routes(req, res, url, user) {
     const started = n ? await jf.refreshGuide(base, key) : false;
     return json(res, 200, { removed: n, refreshing: started,
       others: await jf.others(base, key, TUNER_URL, TUNER_URL + '/xmltv/threadfin.xml') });
+  }
+
+  // Changement de fournisseur ou d'abonnement : effacer ce qui vient de l'ancien.
+  if (p === '/api/reset' && req.method === 'POST') {
+    const b = await body(req);
+    const what = String(b.what || '');
+    if (['playlist', 'guide', 'all'].indexOf(what) === -1) throw fail('Précisez ce qu\'il faut effacer.');
+    let server = await tf.state();
+    const files = (server.settings || {}).files || {};
+    if (what === 'guide' || what === 'all') {
+      for (const id of Object.keys(files.xmltv || {})) server = await tf.deleteXMLTV(id);
+      if (what === 'guide') server = await toDummy(server);   // les chaînes restent, sans programme
+    }
+    if (what === 'playlist' || what === 'all') {
+      // Les filtres d'abord : ils désignent des groupes de l'ancienne liste.
+      for (const id of Object.keys((server.settings || {}).filter || {})) server = await tf.saveFilter({ [id]: { delete: true } });
+      for (const id of Object.keys(files.m3u || {})) server = await tf.deleteM3U(id);
+      await fsp.unlink(FEED_FILE).catch(() => {});
+      state.subscription = '';
+      state.feed = { token: state.feed.token, digest: '', total: 0, kept: 0, vod: 0, at: 0 };
+      state.done = false;
+      await saveState();
+    }
+    return json(res, 200, await apiState());
   }
 
   // Vérification de bout en bout, à relancer quand quelque chose cloche.

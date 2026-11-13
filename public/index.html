@@ -164,7 +164,9 @@ function stepSubscription() {
     </div>
     <div class="tv-msg" id="m"></div>
     <p class="tv-note">${S.subscriptionUrl ? 'Adresse enregistrée : ' + esc(S.subscriptionUrl) +
-      '. Laissez le champ vide pour la garder, ou collez-en une autre.' : 'Aucune adresse enregistrée pour le moment.'}</p>
+      '. Laissez le champ vide pour la garder, ou collez-en une autre.' : 'Aucune adresse enregistrée pour le moment.'}
+      ${S.subscriptionUrl ? '<br>Vous changez de fournisseur ? ' +
+        '<button class="dk-btn" id="wipe" data-label="Effacer la liste et les chaînes">Effacer la liste et les chaînes</button>' : ''}</p>
   </div>`;
 }
 
@@ -209,7 +211,8 @@ function stepGuide() {
       <button class="dk-btn" id="own" data-label="Utiliser celui du fournisseur">Utiliser celui du fournisseur</button>
     </div>
     <div class="tv-msg" id="m"></div>
-    <p class="tv-note">Guides en place : ${(S.guides || []).map(function (g) { return esc(g.name) + ' (' + g.programs + ' programmes)'; }).join(' · ') || 'aucun'}</p>
+    <p class="tv-note">Guides en place : ${(S.guides || []).map(function (g) { return esc(g.name) + ' (' + g.programs + ' programmes)'; }).join(' · ') || 'aucun'}
+      ${(S.guides || []).length ? '<br><button class="dk-btn" id="wipeguide" data-label="Enlever le guide">Enlever le guide</button>' : ''}</p>
   </div>`;
 }
 
@@ -353,6 +356,39 @@ function wire() {
       }
       wait(false);
       busy(go, false);
+    };
+  }
+
+  var wipe = document.getElementById('wipe');
+  if (wipe) {
+    wipe.dataset.label = wipe.textContent;
+    wipe.onclick = async function () {
+      if (!confirm("Effacer la liste de lecture, les groupes choisis et les chaînes ?\n\n" +
+        "Le guide, la liaison avec Jellyfin et vos réglages restent en place. " +
+        "Vous repartirez de l'adresse de votre nouveau fournisseur.")) return;
+      busy(wipe, true, 'Effacement…');
+      try {
+        await api('api/reset', { what: 'playlist' });
+        await load();
+        show('1');
+        say('m', 'Effacé. Collez l\'adresse de votre nouveau fournisseur ci-dessus.', 'ok');
+      } catch (e) { say('m', esc(e.message), 'err'); busy(wipe, false); }
+    };
+  }
+
+  var wipeGuide = document.getElementById('wipeguide');
+  if (wipeGuide) {
+    wipeGuide.dataset.label = wipeGuide.textContent;
+    wipeGuide.onclick = async function () {
+      if (!confirm("Enlever le guide des programmes ?\n\nVos chaînes restent visibles dans Jellyfin, " +
+        "mais sans programmes tant qu'un autre guide n'est pas installé.")) return;
+      busy(wipeGuide, true, 'Retrait…');
+      try {
+        await api('api/reset', { what: 'guide' });
+        await load();
+        show('3');
+        say('m', 'Guide retiré. Vos chaînes restent visibles, sans programmes.', 'ok');
+      } catch (e) { say('m', esc(e.message), 'err'); busy(wipeGuide, false); }
     };
   }
 

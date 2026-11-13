@@ -104,9 +104,18 @@ async function apiKey(base, token) {
   return made.AccessToken;
 }
 
-/** Déclare (ou met à jour) le tuner HDHomeRun servi par cette app. */
+/** Configuration de la TV en direct de Jellyfin : tuners et sources de guide déjà en place. */
+async function liveTvConfig(base, token) {
+  try { return (await request(base, 'System/Configuration/livetv', { token: token })) || {}; }
+  catch (_) { return {}; }                    // configuration encore vide sur un serveur neuf
+}
+
+/**
+ * Déclare (ou met à jour) le tuner HDHomeRun servi par cette app. Les tuners déjà en place se lisent
+ * dans la configuration : « GET LiveTv/TunerHosts » n'existe pas, cette adresse n'accepte que l'ajout.
+ */
 async function setTuner(base, token, url, tunerCount) {
-  const hosts = (await request(base, 'LiveTv/TunerHosts', { token: token })) || [];
+  const hosts = (await liveTvConfig(base, token)).TunerHosts || [];
   const mine = hosts.find((h) => String(h.Url || '').replace(/\/+$/, '') === url.replace(/\/+$/, ''));
   const body = Object.assign({}, mine || {}, {
     Type: 'hdhomerun',
@@ -123,8 +132,10 @@ async function setTuner(base, token, url, tunerCount) {
 
 /** Déclare (ou met à jour) le guide XMLTV servi par cette app. */
 async function setGuide(base, token, url) {
-  const current = (await request(base, 'LiveTv/ListingProviders/Default?type=xmltv', { token: token })) || {};
-  const providers = ((await request(base, 'System/Configuration/livetv', { token: token })) || {}).ListingProviders || [];
+  let current = {};
+  try { current = (await request(base, 'LiveTv/ListingProviders/Default?type=xmltv', { token: token })) || {}; }
+  catch (_) { current = {}; }                 // gabarit absent selon la version : on part de rien
+  const providers = (await liveTvConfig(base, token)).ListingProviders || [];
   const mine = providers.find((p) => String(p.Path || '').replace(/\/+$/, '') === url.replace(/\/+$/, ''));
   const body = Object.assign({}, current, mine || {}, {
     Type: 'xmltv',

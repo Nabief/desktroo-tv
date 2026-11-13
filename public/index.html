@@ -219,9 +219,9 @@ function stepJellyfin() {
     <div class="tv-field">
       <label for="jurl">Adresse de Jellyfin</label>
       <p class="tv-hint">Telle que l'app la joint depuis le NAS : le nom du conteneur si Jellyfin est une app Desktroo
-        (<code>http://dt-jellyfin:8096</code>), sinon l'adresse locale du NAS (<code>http://192.168.0.10:8096</code>).
-        Pas le domaine public.</p>
-      <input class="dk-input" id="jurl" value="${esc(S.jellyfin.url || 'http://dt-jellyfin:8096')}">
+        (<code>http://dt-jellyfin:8080</code> — les apps de Desktroo servent sur 8080, pas sur le port publié),
+        sinon l'adresse locale du NAS (<code>http://192.168.0.10:8096</code>). Pas le domaine public.</p>
+      <input class="dk-input" id="jurl" value="${esc(S.jellyfin.url || 'http://dt-jellyfin:8080')}">
     </div>
     <div class="tv-field">
       <label for="juser">Compte administrateur de Jellyfin</label>

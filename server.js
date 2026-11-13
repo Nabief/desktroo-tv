@@ -533,7 +533,7 @@ async function routes(req, res, url, user) {
   // 5. Jellyfin : tuner, guide et actualisation.
   if (p === '/api/jellyfin' && req.method === 'POST') {
     const b = await body(req);
-    const base = String(b.url || state.jellyfin.url || 'http://dt-jellyfin:8096').trim();
+    const base = await jf.resolve(b.url || state.jellyfin.url || 'http://dt-jellyfin:8080');
     const about = await jf.info(base);
     const token = await jf.login(base, String(b.user || ''), String(b.password || ''));
     const key = await jf.apiKey(base, token);

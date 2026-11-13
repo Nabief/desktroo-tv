@@ -47,7 +47,37 @@ function request(base, path, opts) {
 }
 
 /** Nom et version du serveur : sert à vérifier l'adresse avant de demander un mot de passe. */
-const info = (base) => request(base, 'System/Info/Public', { timeout: 8000 });
+const info = (base) => request(base, 'System/Info/Public', { timeout: 6000 });
+
+/**
+ * Trouve l'adresse qui répond vraiment. Les apps de Desktroo servent toutes sur le port 8080 à
+ * l'intérieur du NAS, alors que 8096 est le port de Jellyfin partout ailleurs — et c'est 8096 que
+ * l'on croit voir, puisque c'est celui publié sur le réseau. On essaie donc ce qui est demandé,
+ * puis l'autre port, plutôt que de renvoyer l'utilisateur à une erreur qu'il ne peut pas deviner.
+ */
+async function resolve(raw) {
+  const text = String(raw || '').trim();
+  let u;
+  try { u = new URL(/:\/\//.test(text) ? text : 'http://' + text); } catch (_) { throw new Error("Adresse de Jellyfin non comprise."); }
+  const ports = [u.port, '8080', '8096'];
+  const tried = [];
+  let last = null;
+  for (const port of ports) {
+    const c = new URL(u.toString());
+    c.port = port;
+    const base = c.origin + (u.pathname === '/' ? '' : u.pathname.replace(/\/*$/, ''));
+    if (tried.indexOf(base) !== -1) continue;
+    tried.push(base);
+    try {
+      await info(base);
+      return base;
+    } catch (e) { last = e; }
+  }
+  const e = new Error('Jellyfin ne répond à aucune de ces adresses : ' + tried.join(' , ') +
+    (last && last.message ? ' — ' + last.message : ''));
+  e.status = 400;
+  throw e;
+}
 
 /** Ouvre une session avec un compte administrateur ; rend son jeton. */
 async function login(base, user, password) {
@@ -123,4 +153,4 @@ async function guideRunning(base, token) {
   return !!(task && task.State && task.State !== 'Idle');
 }
 
-module.exports = { info, login, apiKey, setTuner, setGuide, refreshGuide, channelCount, guideRunning, request };
+module.exports = { resolve, info, login, apiKey, setTuner, setGuide, refreshGuide, channelCount, guideRunning, request };

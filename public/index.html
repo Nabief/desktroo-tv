@@ -34,6 +34,7 @@
   .tv-engine { width: 100%; height: calc(100vh - 160px); min-height: 420px; border: 1px solid var(--glass-border);
     border-radius: var(--radius-sm); background: #11151c; }
   .tv-note { margin-top: 18px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .tv-hint { margin: 0 0 6px; font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
   .tv-done { font-size: 15px; }
   .tv-log { margin-top: 16px; max-height: 320px; overflow: auto; padding: 12px 14px; border-radius: var(--radius-sm);
     border: 1px solid var(--glass-border); background: var(--surface-2); font: 11.5px/1.6 var(--font-mono); white-space: pre-wrap; }
@@ -217,14 +218,17 @@ function stepJellyfin() {
       de votre Jellyfin : il crée une clé d'accès et n'enregistre pas votre mot de passe.</p>
     <div class="tv-field">
       <label for="jurl">Adresse de Jellyfin</label>
+      <p class="tv-hint">Telle que l'app la joint depuis le NAS : le nom du conteneur si Jellyfin est une app Desktroo
+        (<code>http://dt-jellyfin:8096</code>), sinon l'adresse locale du NAS (<code>http://192.168.0.10:8096</code>).
+        Pas le domaine public.</p>
       <input class="dk-input" id="jurl" value="${esc(S.jellyfin.url || 'http://dt-jellyfin:8096')}">
     </div>
     <div class="tv-field">
-      <label for="juser">Compte administrateur</label>
+      <label for="juser">Compte administrateur de Jellyfin</label>
       <input class="dk-input" id="juser" autocomplete="off">
     </div>
     <div class="tv-field">
-      <label for="jpass">Mot de passe</label>
+      <label for="jpass">Son mot de passe</label>
       <input class="dk-input" id="jpass" type="password" autocomplete="off">
     </div>
     <div class="tv-row"><button class="dk-btn primary" id="go" data-label="Relier et terminer">Relier et terminer</button></div>

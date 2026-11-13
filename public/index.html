@@ -36,8 +36,8 @@
   .tv-note { margin-top: 18px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
   .tv-done { font-size: 15px; }
   /* Marque du fournisseur : carré orange, « FLUX » puis « TV ». */
-  .tv-flux { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; letter-spacing: .5px; }
-  .tv-flux .sq { width: 11px; height: 11px; border-radius: 3px; background: #f59e0b; }
+  .tv-flux { display: inline-flex; align-items: center; gap: 7px; font-weight: 800; letter-spacing: .5px; }
+  .tv-flux svg { width: 17px; height: 17px; flex-shrink: 0; }
   .tv-flux .tv { color: #f59e0b; }
 </style>
 </head>
@@ -78,7 +78,13 @@ var step = '1';
 function flux() {
   var n = String(S.siteName || 'FluxTV');
   var m = /^(.*?)(TV)$/i.exec(n);
-  return '<span class="tv-flux"><span class="sq"></span>' + esc(m ? m[1].toUpperCase() : n.toUpperCase()) +
+  var mark = '<svg viewBox="0 0 64 64" aria-hidden="true">' +
+    '<defs><linearGradient id="fxb" x1="0" y1="1" x2="1" y2="0">' +
+    '<stop offset="0" stop-color="#f1760b"/><stop offset="1" stop-color="#ffc062"/></linearGradient></defs>' +
+    '<circle cx="27" cy="32" r="22" fill="none" stroke="url(#fxb)" stroke-width="7"/>' +
+    '<path d="M23 22 39 32 23 42Z" fill="url(#fxb)"/>' +
+    '<path d="M47 17a21 21 0 0 1 0 30" fill="none" stroke="url(#fxb)" stroke-width="7" stroke-linecap="round" opacity=".55"/></svg>';
+  return '<span class="tv-flux">' + mark + esc(m ? m[1].toUpperCase() : n.toUpperCase()) +
     (m ? '<span class="tv">' + esc(m[2].toUpperCase()) + '</span>' : '') + '</span>';
 }
 

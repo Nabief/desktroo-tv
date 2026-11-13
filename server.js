@@ -478,7 +478,9 @@ async function routes(req, res, url, user) {
   if (p === '/api/log' && req.method === 'GET') {
     let log = [];
     try { log = (((await tf.state()).log || {}).log || []).slice(-80); } catch (_) { log = engineLog.slice(-80); }
-    return json(res, 200, { log: log.map((l) => String(l).replace(/password=[^&\s"]*/gi, 'password=••••')) });
+    return json(res, 200, { log: log.map((l) => String(l)
+      .replace(/&nbsp;/g, ' ').replace(/ +/g, ' ')
+      .replace(/password=[^&\s"]*/gi, 'password=••••')) });
   }
 
   throw fail('Page inconnue.', 404);

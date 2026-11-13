@@ -35,6 +35,8 @@
     border-radius: var(--radius-sm); background: #11151c; }
   .tv-note { margin-top: 18px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
   .tv-done { font-size: 15px; }
+  .tv-log { margin-top: 16px; max-height: 320px; overflow: auto; padding: 12px 14px; border-radius: var(--radius-sm);
+    border: 1px solid var(--glass-border); background: var(--surface-2); font: 11.5px/1.6 var(--font-mono); white-space: pre-wrap; }
   /* Attente des étapes longues : voile, anneau et explication. */
   .tv-veil { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 20;
     background: rgba(5, 9, 16, .62); backdrop-filter: blur(2px); }
@@ -251,8 +253,12 @@ function stepCheck() {
   <div class="tv-step">
     <h2>Vérification</h2>
     <p class="tv-lead">Contrôle de bout en bout : abonnement, liste, chaînes, guide et Jellyfin.</p>
-    <div class="tv-row"><button class="dk-btn primary" id="go" data-label="Vérifier mon installation">Vérifier mon installation</button></div>
+    <div class="tv-row">
+      <button class="dk-btn primary" id="go" data-label="Vérifier mon installation">Vérifier mon installation</button>
+      <button class="dk-btn" id="log" data-label="Voir le journal du moteur">Voir le journal du moteur</button>
+    </div>
     <ul class="tv-checks" id="checks"></ul>
+    <pre class="tv-log" id="logbox" hidden></pre>
     <div class="tv-msg" id="m"></div>
   </div>`;
 }
@@ -403,6 +409,18 @@ function wire() {
       busy(go, false);
     };
     go.onclick = run;
+    var logBtn = document.getElementById('log');
+    logBtn.dataset.label = logBtn.textContent;
+    logBtn.onclick = async function () {
+      var box = document.getElementById('logbox');
+      busy(logBtn, true, 'Lecture…');
+      try {
+        var r = await api('api/log');
+        box.textContent = (r.log || []).join('\n') || 'Journal vide.';
+        box.hidden = false;
+      } catch (e) { say('m', esc(e.message), 'err'); }
+      busy(logBtn, false);
+    };
     run();
   }
 }

@@ -28,7 +28,8 @@ const CONF = path.join(DATA, 'conf');
 const STATE_FILE = path.join(DATA, 'state.json');
 const PUB = path.join(__dirname, 'public');
 const FREE_GUIDE = 'https://xmltvfr.fr/xmltv/xmltv_fr.xml.gz';
-const SITE = 'nabief.xyz';
+const SITE = 'nabief.xyz';          // où se réabonner
+const SITE_NAME = 'FluxTV';         // nom du fournisseur
 // Adresse à laquelle Jellyfin joint cette app sur le réseau des apps de Desktroo.
 const TUNER_URL = 'http://dt-' + APP_ID + ':' + tf.PORT;
 
@@ -209,6 +210,7 @@ async function subscription(raw) {
     maxConnections: Number(str('max_connections')) || 1,
     trial: str('is_trial') === '1',
     site: SITE,
+    siteName: SITE_NAME,
   };
 }
 
@@ -334,6 +336,7 @@ async function apiState() {
     tunerUrl: TUNER_URL,
     guideUrl: TUNER_URL + '/xmltv/threadfin.xml',
     site: SITE,
+    siteName: SITE_NAME,
   };
 }
 

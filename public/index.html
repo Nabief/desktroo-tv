@@ -179,6 +179,12 @@ function stepSubscription() {
   </div>`;
 }
 
+// Les fournisseurs rangent ces chaînes sous « XX | FOR ADULT », « ADULTS », « XXX »… Elles sont
+// tenues à l'écart du reste : jamais dans les raccourcis, jamais cochées d'office, jamais prises
+// par « Tout cocher » tant qu'elles ne sont pas montrées.
+var ADULTE = /(^|[^a-z0-9])(xx+|adult[es]?|adulte?s?|porn\w*|erotic\w*|[ée]rotique?s?|18\+|\+18)([^a-z0-9]|$)/i;
+function estAdulte(nom) { return ADULTE.test(String(nom)); }
+
 /**
  * Pays et familles présents dans la liste. Les fournisseurs nomment leurs groupes « EU | FRANCE
  * CINEMA », « EU | SPAIN DAZN » : le mot qui suit la barre verticale sert de raccourci, sans qu'il
@@ -186,7 +192,7 @@ function stepSubscription() {
  */
 function families() {
   var count = {};
-  groups.forEach(function (g) {
+  groups.filter(function (g) { return !estAdulte(g.name); }).forEach(function (g) {
     var m = /(?:^|\|)\s*([^|]+)$/.exec(g.name);
     var w = (m ? m[1] : g.name).trim().split(/\s+/)[0];
     if (w && w.length > 1) count[w] = (count[w] || 0) + 1;
@@ -200,11 +206,15 @@ function stepChannels() {
   // Déjà installé : on recoche le choix en place, pour qu'ajouter un groupe soit un seul clic.
   // Première fois : on propose les groupes français, que l'on décoche au besoin.
   var deja = (S.chosen || []);
-  var list = groups.length ? groups.map(function (g, i) {
-    var pre = deja.length ? deja.indexOf(g.name) !== -1 : /fr|franc/i.test(g.name);
+  var ligne = function (g) {
+    var pre = deja.length ? deja.indexOf(g.name) !== -1 : /fr|franc/i.test(g.name) && !estAdulte(g.name);
     return '<label><input type="checkbox" value="' + esc(g.name) + '"' + (pre ? ' checked' : '') + '> ' +
       '<span>' + esc(g.name) + '</span><span class="n">' + g.count + '</span></label>';
-  }).join('')
+  };
+  var adultes = groups.filter(function (g) { return estAdulte(g.name); });
+  var normaux = groups.filter(function (g) { return !estAdulte(g.name); });
+  var adulteChoisi = adultes.some(function (g) { return deja.indexOf(g.name) !== -1; });
+  var list = groups.length ? normaux.map(ligne).join('')
     // Les groupes ne vivent qu'en mémoire du moteur : après une réouverture, on les redemande.
     : (S.playlist
       ? '<p class="dk-muted">Les groupes se relisent dans votre liste de lecture.</p>'
@@ -216,13 +226,18 @@ function stepChannels() {
       les autres n'apparaîtront pas dans Jellyfin, qui restera rapide.</p>
     ${groups.length ? `<div class="tv-row" style="margin-bottom:0">
       <input class="dk-input" id="gq" placeholder="Filtrer : musique, sport, cinéma…" style="max-width:300px">
-      <span class="dk-muted" id="gn">${groups.length} groupes — la liste défile</span>
+      <span class="dk-muted" id="gn">${normaux.length} groupes — la liste défile</span>
     </div>
     <div class="tv-chips" id="fam">${families().map(function (f) {
       return '<button type="button" data-w="' + esc(f.word) + '" aria-pressed="false">' + esc(f.word) +
         ' <span class="dk-muted">' + f.n + '</span></button>';
     }).join('')}</div>` : ''}
     <div class="tv-groups" id="groups">${list}</div>
+    ${adultes.length ? `<div class="tv-field" style="margin-top:12px">
+      <label><input type="checkbox" id="showadult"${adulteChoisi ? ' checked' : ''}>
+        Afficher les ${adultes.length} groupe(s) pour adultes (${adultes.reduce(function (n, g) { return n + g.count; }, 0)} chaînes)</label>
+      <div class="tv-groups" id="adult" style="margin-top:8px;display:${adulteChoisi ? '' : 'none'}">${adultes.map(ligne).join('')}</div>
+    </div>` : ''}
     <div class="tv-field" style="margin-top:14px">
       <label><input type="checkbox" id="hdOnly"${S.hdOnly ? ' checked' : ''}> Garder seulement la version HD de chaque chaîne (sinon : HD, SD, HEVC et 4K, au choix dans l'appli)</label>
     </div>
@@ -449,10 +464,21 @@ function wire() {
       };
       return;
     }
-    var boxes = function () { return Array.prototype.slice.call(document.querySelectorAll('#groups input')); };
+    var boxes = function () { return Array.prototype.slice.call(document.querySelectorAll('#groups input, #adult input')); };
+    var sa = document.getElementById('showadult');
+    if (sa) {
+      sa.onchange = function () {
+        var box = document.getElementById('adult');
+        box.style.display = sa.checked ? '' : 'none';
+        if (!sa.checked) {
+          // Masquer, c'est renoncer : sinon un groupe coché resterait choisi sans être visible.
+          Array.prototype.forEach.call(box.querySelectorAll('input'), function (b) { b.checked = false; });
+        }
+      };
+    }
     // « Tout cocher » ne porte que sur ce qui est affiché : avec un filtre en cours, cocher
     // soixante groupes invisibles serait une mauvaise surprise.
-    var shown = function () { return boxes().filter(function (b) { return b.parentNode.style.display !== 'none'; }); };
+    var shown = function () { return boxes().filter(function (b) { return b.offsetParent !== null; }); };
     document.getElementById('all').onclick = function () { shown().forEach(function (b) { b.checked = true; }); };
     document.getElementById('none').onclick = function () { shown().forEach(function (b) { b.checked = false; }); };
     var fam = document.getElementById('fam');
@@ -478,8 +504,9 @@ function wire() {
           b.parentNode.style.display = ok ? '' : 'none';
           if (ok) n++;
         });
-        document.getElementById('gn').textContent = q ? n + ' groupe(s) sur ' + boxes().length
-          : boxes().length + ' groupes — la liste défile';
+        var total = document.querySelectorAll('#groups input').length;
+        document.getElementById('gn').textContent = q ? n + ' groupe(s) sur ' + total
+          : total + ' groupes — la liste défile';
       };
     }
     go.onclick = async function () {

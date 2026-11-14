@@ -581,6 +581,24 @@ async function remap(server) {
   return tf.saveEpgMapping(mapped.mapping);
 }
 
+/**
+ * Le mode de relais est une propriété de la liste de lecture, pas un réglage général : une
+ * installation déjà en place garde donc l'ancien tant que personne ne réenregistre sa liste, et le
+ * moteur continue de n'envoyer aucune donnée. On le remet d'aplomb au démarrage, sans retélécharger.
+ */
+async function ensurePlaylistBuffer() {
+  const s = await tf.state();
+  const files = ((s.settings || {}).files || {}).m3u || {};
+  const req = {};
+  for (const id of Object.keys(files)) {
+    if (files[id].buffer !== 'ffmpeg') req[id] = Object.assign({}, files[id], { buffer: 'ffmpeg' });
+  }
+  if (!Object.keys(req).length) return false;
+  await tf.cmd('saveFilesM3U', { files: { m3u: req } });
+  console.log('[tv] relais du flux activé sur la liste');
+  return true;
+}
+
 /** Fichier servi au moteur seul : même conteneur (boucle locale) et jeton de cette installation. */
 function serveFeed(req, res, url) {
   const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
@@ -1003,6 +1021,7 @@ server.on('upgrade', (req, socket, head) => {
     }
     await tf.ready(120);
     await engineDefaults();
+    await ensurePlaylistBuffer().catch(() => {});
     console.log('[tv] moteur réglé');
     // La liste est retéléchargée régulièrement ; le moteur n'est refait que si son contenu a bougé.
     setInterval(() => {

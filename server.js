@@ -908,6 +908,29 @@ async function routes(req, res, url, user) {
     return json(res, 200, { emptied: reste === 0, remaining: reste, refreshing: started });
   }
 
+  /**
+   * Libère les voies perdues. Jellyfin compte les flux en cours par tuner, et n'en relâche un que
+   * sur une fermeture explicite du lecteur : un flux mort en cours de route — coupure du
+   * fournisseur, téléviseur débranché — reste compté pour toujours, et au bout de quelques-uns
+   * plus aucune chaîne ne s'ouvre (« simultaneous stream limit has been reached »).
+   *
+   * Ce comptage est rattaché à l'identifiant interne du tuner. Le retirer et le redéclarer lui en
+   * donne un neuf : les voies mortes ne s'y rattachent plus et le compte repart de zéro. Quelques
+   * secondes, là où la remise à plat complète demande plusieurs minutes.
+   */
+  if (p === '/api/jellyfin/unlock' && req.method === 'POST') {
+    if (!state.jellyfin.key) throw fail("Reliez d'abord Jellyfin (écran ④).");
+    const base = state.jellyfin.url, key = state.jellyfin.key;
+    const tout = await jf.others(base, key, '', '');
+    const miens = tout.tuners.filter((t) => t.id &&
+      String(t.url || '').replace(/\/+$/, '') === TUNER_URL.replace(/\/+$/, ''));
+    for (const t of miens) await jf.dropTuner(base, key, t.id);
+    const engine = await tf.state();
+    await jf.setTuner(base, key, TUNER_URL, Number((engine.settings || {}).tuner) || 2);
+    const started = await jf.refreshGuide(base, key).catch(() => false);
+    return json(res, 200, { renewed: miens.length, refreshing: started });
+  }
+
   // Tuner ou guide d'une installation précédente : tant qu'ils restent, tout apparaît en double.
   if (p === '/api/jellyfin/others' && req.method === 'POST') {
     if (!state.jellyfin.key) throw fail("Reliez d'abord Jellyfin (écran ④).");

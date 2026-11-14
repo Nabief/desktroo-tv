@@ -377,6 +377,7 @@ function stepCheck() {
     <div class="tv-row">
       <button class="dk-btn primary" id="go" data-label="Vérifier mon installation">Vérifier mon installation</button>
       <button class="dk-btn" id="log" data-label="Voir le journal du moteur">Voir le journal du moteur</button>
+      <button class="dk-btn" id="unlock" data-label="Débloquer la lecture">Débloquer la lecture</button>
       <button class="dk-btn" id="repair" data-label="Remettre Jellyfin d'aplomb">Remettre Jellyfin d'aplomb</button>
     </div>
     <ul class="tv-checks" id="checks"></ul>
@@ -630,6 +631,22 @@ function wire() {
     };
     go.onclick = run;
     bindLog();
+    // Voies perdues : Jellyfin ne relâche un flux que sur fermeture explicite du lecteur. Après
+    // quelques coupures, il refuse toutes les chaînes. Redéclarer le tuner remet son compte à zéro.
+    var unl = document.getElementById('unlock');
+    unl.dataset.label = unl.textContent;
+    unl.onclick = async function () {
+      busy(unl, true, 'Déblocage…');
+      try {
+        var u = await api('api/jellyfin/unlock', {});
+        say('m', u.renewed
+          ? 'Tuner redéclaré : les voies restées ouvertes après une coupure sont libérées. Relancez une chaîne.'
+          : "Aucun tuner à redéclarer : vérifiez d'abord que Jellyfin est relié (écran ④).",
+          u.renewed ? 'ok' : 'err');
+      } catch (e) { say('m', esc(e.message), 'err'); }
+      busy(unl, false);
+    };
+
     var rep2 = document.getElementById('repair');
     rep2.dataset.label = rep2.textContent;
     rep2.onclick = async function () {

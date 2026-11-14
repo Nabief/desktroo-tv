@@ -120,6 +120,20 @@ function startEngine() {
  * Rend vrai s'il faut le relancer.
  */
 /**
+ * Le moteur se bloque parfois sans rien faire : il n'utilise plus de processeur, ne répond plus à
+ * aucune commande, et tout attend derrière lui. Le relancer est alors la seule issue — son travail
+ * en cours est de toute façon perdu, et l'assistant repose ses réglages derrière.
+ */
+async function restartEngine() {
+  if (!engine) return false;
+  console.log('[tv] moteur bloqué : relance');
+  engine.kill();                               // le gardien le relance tout seul
+  await new Promise((r) => setTimeout(r, 7000));
+  await tf.ready(120);
+  return true;
+}
+
+/**
  * Le moteur n'écoute par défaut que sur une adresse, et Jellyfin ne le joindrait pas. Son fichier de
  * configuration n'expose pas ce réglage par son interface : il faut l'y écrire. Mais un fichier
  * incomplet le fait refuser de démarrer pour de bon (« Invalid settings file »), donc on attend
@@ -667,7 +681,10 @@ async function routes(req, res, url, user) {
     for (let essai = 0; ; essai++) {
       try { server = await makeFilters(groups, { hdOnly: !!b.hdOnly, exclude: b.exclude }); break; }
       catch (e) {
-        if (essai >= 3 || !/coupé la connexion|injoignable/i.test(String(e.message))) throw e;
+        const msg = String(e.message || '');
+        if (essai >= 1) throw e;
+        if (/ne répond pas/i.test(msg)) { await restartEngine(); continue; }
+        if (!/coupé la connexion|injoignable/i.test(msg)) throw e;
         await tf.ready(60);
       }
     }

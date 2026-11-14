@@ -169,6 +169,29 @@ const dropTuner = (base, token, id) =>
 const dropGuide = (base, token, id) =>
   request(base, 'LiveTv/ListingProviders?id=' + encodeURIComponent(id), { method: 'DELETE', token: token });
 
+/** Comptes du serveur : les préférences d'affichage sont rattachées à un compte, pas au serveur. */
+const users = async (base, token) => {
+  const list = await request(base, 'Users', { token: token });
+  return (Array.isArray(list) ? list : []).map((u) => u && u.Id).filter(Boolean);
+};
+
+/**
+ * Dépose des valeurs dans les préférences d'affichage d'un compte. C'est le seul endroit qu'une
+ * application cliente peut lire sans rien savoir d'autre que son serveur Jellyfin : TIVImu y trouve
+ * l'état de l'abonnement sans qu'on lui redonne l'adresse de la liste, qui contient un mot de passe.
+ */
+const setPrefs = (base, token, userId, id, client, prefs) =>
+  request(base, 'DisplayPreferences/' + encodeURIComponent(id) +
+    '?userId=' + encodeURIComponent(userId) + '&client=' + encodeURIComponent(client), {
+    token: token,
+    method: 'POST',
+    body: Object.assign({
+      Id: id, Client: client, ViewType: '', IndexBy: '', SortBy: 'SortName', SortOrder: 'Ascending',
+      ScrollDirection: 'Horizontal', RememberIndexing: false, RememberSorting: false,
+      PrimaryImageHeight: 250, PrimaryImageWidth: 250, ShowBackdrop: true, ShowSidebar: false,
+    }, { CustomPrefs: prefs }),
+  });
+
 /** Lance l'actualisation du guide et rend vrai si la tâche a démarré. */
 async function refreshGuide(base, token) {
   const tasks = (await request(base, 'ScheduledTasks', { token: token })) || [];
@@ -191,4 +214,4 @@ async function guideRunning(base, token) {
   return !!(task && task.State && task.State !== 'Idle');
 }
 
-module.exports = { resolve, others, dropTuner, dropGuide, info, login, apiKey, setTuner, setGuide, refreshGuide, channelCount, guideRunning, request };
+module.exports = { resolve, others, users, setPrefs, dropTuner, dropGuide, info, login, apiKey, setTuner, setGuide, refreshGuide, channelCount, guideRunning, request };

@@ -8,6 +8,8 @@ const conf = {
   ListingProviders: [{ Id: 'vieuxguide', Type: 'xmltv', Path: 'http://192.168.0.200:34400/xmltv/threadfin.xml' }],
 };
 const keys = [];
+const comptes = [{ Id: 'u1', Name: 'Fabien' }, { Id: 'u2', Name: 'Famille' }];
+const prefs = {};                      // préférences d'affichage par compte
 const json = (res, obj, code) => {
   res.writeHead(code || 200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(obj === undefined ? null : obj));
@@ -48,6 +50,13 @@ http.createServer((req, res) => {
       if (m === 'POST') { keys.push({ AppName: u.searchParams.get('app'), AccessToken: 'cle-' + keys.length }); return json(res, null); }
       return json(res, { Items: keys });
     }
+    if (p === 'Users') return json(res, comptes);
+    if (p.startsWith('DisplayPreferences/')) {
+      const cle = u.searchParams.get('userId') + '|' + p.slice('DisplayPreferences/'.length);
+      if (m === 'POST') { prefs[cle] = body; return json(res, null); }
+      return json(res, prefs[cle] || { Id: '', CustomPrefs: {} });
+    }
+    if (p === '__prefs') return json(res, prefs);        // pour l'essai seulement
     if (p === 'ScheduledTasks') return json(res, [{ Id: 'tache', Key: 'RefreshGuide', Name: 'Guide', State: 'Idle' }]);
     if (p.startsWith('ScheduledTasks/Running/')) { res.writeHead(204); return res.end(); }
     if (p === 'LiveTv/Channels') return json(res, { TotalRecordCount: conf.TunerHosts.length * 400 });

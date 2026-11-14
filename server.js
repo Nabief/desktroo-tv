@@ -29,6 +29,8 @@ const CONF = path.join(DATA, 'conf');
 const STATE_FILE = path.join(DATA, 'state.json');
 const FEED_FILE = path.join(DATA, 'playlist.m3u');
 const FFMPEG = process.env.FFMPEG_BIN || '/usr/bin/ffmpeg';   // le moteur relaie les flux par lui
+const SUB_PREFS = 'tivimu-subscription';    // fiche lue par TIVImu
+const SUB_CLIENT = 'TIVImu';
 const PUB = path.join(__dirname, 'public');
 const FREE_GUIDE = 'https://xmltvfr.fr/xmltv/xmltv_fr.xml.gz';
 const SITE = 'nabief.xyz';          // où se réabonner
@@ -599,6 +601,35 @@ async function ensurePlaylistBuffer() {
   return true;
 }
 
+/**
+ * Dépose l'état de l'abonnement dans Jellyfin, pour que TIVImu l'affiche sans qu'on lui redonne
+ * l'adresse de la liste — qui contient un mot de passe et qu'on ne veut pas voir recopiée sur
+ * chaque téléviseur. Les préférences d'affichage étant rattachées à un compte, on écrit pour tous.
+ * Fiche distincte de celle où TIVImu range l'ordre des chaînes, sinon chacun effacerait l'autre.
+ */
+async function publishSubscription(sub) {
+  if (!state.jellyfin.key || !sub) return false;
+  const prefs = {
+    status: String(sub.status || ''),
+    active: sub.active ? '1' : '0',
+    expiresAt: sub.expiresAt ? String(sub.expiresAt) : '',
+    connections: String(sub.connections || 0),
+    maxConnections: String(sub.maxConnections || 0),
+    trial: sub.trial ? '1' : '0',
+    provider: String(sub.siteName || ''),
+    site: String(sub.site || ''),
+    at: String(Date.now()),
+  };
+  const comptes = await jf.users(state.jellyfin.url, state.jellyfin.key);
+  let n = 0;
+  for (const id of comptes) {
+    try { await jf.setPrefs(state.jellyfin.url, state.jellyfin.key, id, SUB_PREFS, SUB_CLIENT, prefs); n++; }
+    catch (_) { /* un compte qui refuse n'empêche pas les autres */ }
+  }
+  if (n) console.log('[tv] abonnement publié pour ' + n + ' compte(s) Jellyfin');
+  return n > 0;
+}
+
 /** Fichier servi au moteur seul : même conteneur (boucle locale) et jeton de cette installation. */
 function serveFeed(req, res, url) {
   const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
@@ -666,6 +697,7 @@ async function routes(req, res, url, user) {
     const sub = await subscription(url);
     state.subscription = url;
     await saveState();
+    await publishSubscription(sub).catch(() => {});
     return json(res, 200, sub);
   }
 
@@ -765,6 +797,10 @@ async function routes(req, res, url, user) {
     state.done = true;
     await saveState();
     const rest = await jf.others(base, key, TUNER_URL, TUNER_URL + '/xmltv/threadfin.xml');
+    // L'abonnement suit : les applis le liront sur le serveur plutôt que de redemander l'adresse.
+    if (state.subscription) {
+      await subscription(state.subscription).then(publishSubscription).catch(() => {});
+    }
     return json(res, 200, { server: (about && about.ServerName) || 'Jellyfin', version: (about && about.Version) || '',
       refreshing: started, others: rest });
   }
@@ -1028,6 +1064,7 @@ server.on('upgrade', (req, socket, head) => {
       if (!state.subscription) return;
       const was = state.feed.digest;
       refreshFeed().then((r) => (r.digest === was ? null : installPlaylist(0))).catch(() => {});
+      subscription(state.subscription).then(publishSubscription).catch(() => {});
     }, 6 * 3600 * 1000);
   } catch (e) {
     console.error('[tv] moteur :', e.message);

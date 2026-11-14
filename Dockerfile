@@ -26,6 +26,9 @@ LABEL org.opencontainers.image.title="Desktroo TV" \
       org.opencontainers.image.source="https://github.com/Nabief/desktroo-tv" \
       org.opencontainers.image.licenses="LicenseRef-Desktroo AND MIT" \
       fr.desktroo.threadfin="${THREADFIN_VERSION}"
+# FFmpeg relaie les flux : le mode de tampon interne du moteur ne démarre rien dans cette version,
+# et FFmpeg sait en plus se présenter au fournisseur comme le lecteur qu'il attend.
+RUN apk add --no-cache ffmpeg
 WORKDIR /app
 COPY --from=engine /threadfin /app/threadfin
 COPY --from=engine /src/LICENSE /app/THREADFIN-LICENSE

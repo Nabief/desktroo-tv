@@ -49,6 +49,24 @@ http.createServer((req, res) => {
     return res.end(JSON.stringify({ user_info: { auth: ok ? 1 : 0, status: ok ? 'Active' : 'Expired', exp_date: String(exp),
       active_cons: '0', max_connections: '2', is_trial: '0' } }));
   }
+  // Faux flux : des octets au rythme d'une vraie diffusion, pour vérifier que le moteur relaie
+  // bien jusqu'au lecteur. Comme chez un vrai fournisseur, seul un lecteur connu est servi.
+  if (u.pathname.startsWith('/live/')) {
+    if (!/VLC/i.test(String(req.headers['user-agent'] || ''))) { req.destroy(); return; }
+    res.writeHead(200, { 'Content-Type': 'video/mp2t' });
+    // Un vrai flux MPEG-TS, rejoué en boucle : FFmpeg refuse des octets quelconques.
+    const fichier = process.env.FAKE_TS || '';
+    let data;
+    try { data = require('fs').readFileSync(fichier); } catch (_) { data = Buffer.alloc(16 * 1024, 7); }
+    let pos = 0;
+    const t = setInterval(() => {
+      const bout = data.subarray(pos, pos + 64 * 1024);
+      pos = (pos + 64 * 1024) % data.length;
+      if (!res.write(bout)) { /* le client suivra */ }
+    }, 60);
+    req.on('close', () => clearInterval(t));
+    return;
+  }
   if (u.pathname === '/get.php') {
     if (!ok) { res.writeHead(403); return res.end('no'); }
     res.writeHead(200, { 'Content-Type': 'audio/x-mpegurl' });

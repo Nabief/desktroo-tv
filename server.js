@@ -28,6 +28,7 @@ const DATA = process.env.DATA_DIR || '/data';
 const CONF = path.join(DATA, 'conf');
 const STATE_FILE = path.join(DATA, 'state.json');
 const FEED_FILE = path.join(DATA, 'playlist.m3u');
+const FFMPEG = process.env.FFMPEG_BIN || '/usr/bin/ffmpeg';   // le moteur relaie les flux par lui
 const PUB = path.join(__dirname, 'public');
 const FREE_GUIDE = 'https://xmltvfr.fr/xmltv/xmltv_fr.xml.gz';
 const SITE = 'nabief.xyz';          // où se réabonner
@@ -196,7 +197,8 @@ async function engineDefaults() {
   // HDHomeRun de Jellyfin ne suit pas la redirection et n'obtient alors aucune donnée
   // (« Zero bytes copied from stream »). Relayer permet aussi de compter les connexions ouvertes.
   // Rien n'est ouvert chez le fournisseur tant que personne ne regarde.
-  if (s.buffer !== 'threadfin') wanted.buffer = 'threadfin';
+  if (s.buffer !== 'ffmpeg') wanted.buffer = 'ffmpeg';
+  if (s['ffmpeg.path'] !== FFMPEG) wanted['ffmpeg.path'] = FFMPEG;
   if (Number(s['buffer.size.kb']) !== 1024) wanted['buffer.size.kb'] = 1024;
   if (Number(s['buffer.timeout']) !== 500) wanted['buffer.timeout'] = 500;
   // Beaucoup de fournisseurs ne répondent qu'aux lecteurs qu'ils connaissent et laissent les autres

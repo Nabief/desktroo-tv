@@ -213,7 +213,12 @@ async function state() {
  * sinon changer l'adresse recharge l'ancienne.
  */
 async function saveM3U(id, name, url, tuner) {
-  const entry = { name: name, description: '', 'file.source': url, tuner: Number(tuner) || 1, 'http_proxy.ip': '', 'http_proxy.port': '' };
+  // « buffer » se règle par liste de lecture, et non dans les réglages généraux du moteur. Sans
+  // lui, le moteur ouvre un tuner sans rien relayer et le lecteur attend dans le vide. Et son mode
+  // « threadfin » ne démarre rien non plus dans cette version : seuls « ffmpeg » et « vlc » le
+  // font. FFmpeg a l'avantage d'annoncer au fournisseur le lecteur qu'il attend.
+  const entry = { name: name, description: '', 'file.source': url, tuner: Number(tuner) || 1,
+    buffer: 'ffmpeg', 'http_proxy.ip': '', 'http_proxy.port': '' };
   const saved = await cmd('saveFilesM3U', { files: { m3u: { [id || '-']: entry } } });
   if (!id) return saved;                                   // nouvelle liste : déjà téléchargée
   return cmd('updateFileM3U', { files: { m3u: { [id]: entry } } });

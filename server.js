@@ -137,6 +137,64 @@ async function restartEngine() {
 }
 
 /**
+ * Combien de flux tournent réellement. Le moteur lance un ffmpeg par chaîne ouverte ; les compter
+ * dans /proc évite de dépendre des options de « ps », qui varient d'une image à l'autre. Les ffmpeg
+ * de Jellyfin vivent dans un autre conteneur et ne sont donc pas vus d'ici.
+ */
+async function flux() {
+  let pids;
+  try { pids = await fsp.readdir('/proc'); } catch (_) { return -1; }
+  let n = 0;
+  for (const pid of pids) {
+    if (!/^\d+$/.test(pid)) continue;
+    let ligne = '';
+    try { ligne = await fsp.readFile('/proc/' + pid + '/cmdline', 'utf8'); } catch (_) { continue; }
+    // Le nom du programme seul : chercher « ffmpeg » n'importe où compterait aussi le shell qui
+    // l'a lancé, ou le moteur dont la configuration cite le chemin de ffmpeg.
+    const nom = ligne.split('\u0000')[0].split('/').pop();
+    if (/^ffmpeg/.test(nom)) n++;
+  }
+  return n;
+}
+
+/**
+ * Le moteur compte ses clients pour respecter le nombre de tuners. Quand un flux se coupe
+ * brutalement — le fournisseur raccroche, le téléviseur s'éteint sans prévenir — ce compte ne
+ * redescend pas toujours, alors que plus aucun ffmpeg ne tourne. Le moteur se croit alors occupé
+ * et refuse toute nouvelle chaîne, pour de bon : plus rien ne se lit jusqu'au redémarrage.
+ *
+ * On compare donc ce qu'il annonce à ce qui tourne vraiment. Jamais sur un seul relevé — un flux
+ * peut très bien démarrer entre deux mesures — mais sur deux de suite, ce qu'aucun démarrage normal
+ * ne produit.
+ */
+let fantomes = 0;
+async function veilleFantomes() {
+  let annonce;
+  try { annonce = Number((((await tf.state()) || {}).clientInfo || {}).activeClients); } catch (_) { return false; }
+  if (!(annonce > 0)) { fantomes = 0; return false; }
+  if ((await flux()) !== 0) { fantomes = 0; return false; }
+  if (++fantomes < 2) return false;
+  fantomes = 0;
+  console.log('[tv] ' + annonce + ' flux compté(s) mais aucun en cours : le moteur se croit occupé, relance');
+  await restartEngine().catch(() => {});
+  return true;
+}
+
+/**
+ * Le nombre de tuners fait partie de l'identité que le moteur annonce : le changer donne un nouvel
+ * appareil aux yeux de Jellyfin. Il faut donc le lui redire, sans quoi il garde l'ancienne limite
+ * et continue de refuser les chaînes.
+ */
+async function syncTuner() {
+  if (!state.jellyfin.key) return false;
+  const s = await tf.state();
+  const voies = Number((s.settings || {}).tuner) || 2;
+  await jf.setTuner(state.jellyfin.url, state.jellyfin.key, TUNER_URL, voies);
+  console.log('[tv] Jellyfin informé : ' + voies + ' voies');
+  return true;
+}
+
+/**
  * Le moteur n'écoute par défaut que sur une adresse, et Jellyfin ne le joindrait pas. Son fichier de
  * configuration n'expose pas ce réglage par son interface : il faut l'y écrire. Mais un fichier
  * incomplet le fait refuser de démarrer pour de bon (« Invalid settings file »), donc on attend
@@ -207,12 +265,22 @@ async function engineDefaults() {
   // attendre sans rien envoyer.
   const ua = String(s['user.agent'] || '');
   if (!ua || ua === 'Threadfin') wanted['user.agent'] = 'VLC/3.0.20 LibVLC/3.0.20';   // un choix personnel est respecté
+  // Jellyfin lit le nombre de tuners dans « discover.json », que le moteur remplit avec son réglage
+  // GLOBAL — pas avec celui de la liste, qui ne limite que cette liste. Laissé à 1 (sa valeur par
+  // défaut), Jellyfin n'autorise qu'un flux à la fois : si un flux se coupe mal, le moteur continue
+  // de le compter et refuse alors TOUTES les chaînes, « Unable to find host to play channel ».
+  // Deux voies au minimum laissent de quoi rattraper un zapping ou un flux mal refermé ; rien n'est
+  // ouvert chez le fournisseur tant que personne ne regarde, donc son abonnement reste respecté.
+  const listes = Object.values(((s.files || {}).m3u) || {});
+  const voies = Math.max(2, ...listes.map((f) => Number(f.tuner) || 0));
+  if (Number(s.tuner) !== voies) wanted.tuner = voies;
   if (!Array.isArray(s.update) || !s.update.length) wanted.update = ['0300'];
   // Adresse annoncée dans les liens (chaînes, logos) : le nom du conteneur, que Jellyfin sait joindre.
   const domain = 'dt-' + APP_ID;
   if (s.httpThreadfinDomain !== domain) wanted.httpThreadfinDomain = domain;
   if (s['files.update'] !== true) wanted['files.update'] = true;
   if (Object.keys(wanted).length) await tf.saveSettings(wanted);
+  return Object.keys(wanted);
 }
 
 // ---------------------------------------------------------------- Abonnement du client (API Xtream)
@@ -513,7 +581,7 @@ async function installPlaylist(tuner) {
   const files = ((before.settings || {}).files || {}).m3u || {};
   const u = feedUrl();
   const existing = Object.keys(files).find((id) => files[id]['file.source'] === u) || '';
-  const n = Math.max(1, Math.min(10, Number(tuner) || Number(files[existing] && files[existing].tuner) || 1));
+  const n = Math.max(2, Math.min(10, Number(tuner) || Number(files[existing] && files[existing].tuner) || 2));
   for (const id of Object.keys(files)) {
     if (id !== existing) await tf.deleteM3U(id);      // liste d'une version précédente ou d'une autre adresse
   }
@@ -711,6 +779,9 @@ async function routes(req, res, url, user) {
     await saveState();
     const info = await refreshFeed(u);
     const after = await installPlaylist(b.tuner);
+    // Le nombre de voies annoncé à Jellyfin suit celui de la liste.
+    const majVoies = await engineDefaults().catch(() => []);
+    if (majVoies.indexOf('tuner') >= 0) await syncTuner().catch(() => {});
     const groups = groupsOf(after);
     const streams = (((after.data || {}).StreamPreviewUI || {}).inactiveStreams || []).length +
       (((after.data || {}).StreamPreviewUI || {}).activeStreams || []).length;
@@ -789,8 +860,7 @@ async function routes(req, res, url, user) {
     const token = await jf.login(base, String(b.user || ''), String(b.password || ''));
     const key = await jf.apiKey(base, token);
     const server = await tf.state();
-    const tuner = (Object.keys(((server.settings || {}).files || {}).m3u || {}).map((id) => server.settings.files.m3u[id].tuner)[0]) || 1;
-    await jf.setTuner(base, key, TUNER_URL, tuner);
+    await jf.setTuner(base, key, TUNER_URL, Number((server.settings || {}).tuner) || 2);
     await jf.setGuide(base, key, TUNER_URL + '/xmltv/threadfin.xml');
     const started = await jf.refreshGuide(base, key);
     state.jellyfin = { url: base, key: key };
@@ -830,9 +900,7 @@ async function routes(req, res, url, user) {
     }
     etape(2);
     const engine = await tf.state();
-    const tuner = (Object.keys(((engine.settings || {}).files || {}).m3u || {})
-      .map((id) => engine.settings.files.m3u[id].tuner)[0]) || 1;
-    await jf.setTuner(base, key, TUNER_URL, tuner);
+    await jf.setTuner(base, key, TUNER_URL, Number((engine.settings || {}).tuner) || 2);
     await jf.setGuide(base, key, guideUrl);
     etape(3);
     const started = await jf.refreshGuide(base, key);
@@ -1056,9 +1124,12 @@ server.on('upgrade', (req, socket, head) => {
       await new Promise((r) => setTimeout(r, 7000));
     }
     await tf.ready(120);
-    await engineDefaults();
+    const repris = await engineDefaults();
     await ensurePlaylistBuffer().catch(() => {});
+    if (repris.indexOf('tuner') >= 0) await syncTuner().catch(() => {});
     console.log('[tv] moteur réglé');
+    // Un flux mal refermé bloquerait sinon toutes les chaînes jusqu'au prochain redémarrage.
+    setInterval(() => { veilleFantomes().catch(() => {}); }, 60 * 1000);
     // La liste est retéléchargée régulièrement ; le moteur n'est refait que si son contenu a bougé.
     setInterval(() => {
       if (!state.subscription) return;
